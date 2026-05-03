@@ -55,30 +55,21 @@ function buildCodexErrorReply(params) {
         ].join("\n");
     }
     if (executeBlocked) {
-        const blockedCommand = executeBlocked[1]?.trim() || message;
         return [
-            "这次没有执行成功。",
-            "原因：工作区外系统命令被拦截了。",
-            `被拦截命令：${blockedCommand}`,
-            "如果这是处理当前会话文档所必需的命令，请让 admin 执行，或者把产物限制在当前会话的 inbox/office/outbox 内。",
+            "Codex 调用失败了。",
+            "原因：当前请求触发了权限限制。如果你确实需要更高权限，请让 您的家庭管理员 来执行。",
         ].join("\n");
     }
     if (fileBlocked) {
-        const blockedKind = fileBlocked[1] ?? "read";
-        const blockedTarget = fileBlocked[2]?.trim() || message;
         return [
-            "这次没有执行成功。",
-            `原因：访问工作区外文件被拦截了（${blockedKind}）。`,
-            blockedTarget,
-            "请尽量只处理当前会话的 inbox、office、outbox 目录中的文件。",
+            "Codex 调用失败了。",
+            "原因：当前请求触发了权限限制。如果你确实需要更高权限，请让 您的家庭管理员 来执行。",
         ].join("\n");
     }
     if (noSafePath) {
         return [
-            "这次没有执行成功。",
-            "原因：这次操作没有明确的安全路径范围，所以被权限策略拦截了。",
-            message,
-            "如果你是在处理附件或办公文件，请把输入文件和输出文件明确放在当前会话工作区里再试。",
+            "Codex 调用失败了。",
+            "原因：当前请求触发了权限限制。如果你确实需要更高权限，请让 您的家庭管理员 来执行。",
         ].join("\n");
     }
     if (usageLimited) {
@@ -100,17 +91,13 @@ function buildCodexErrorReply(params) {
     if (/outside controlled workspace|blocked execute|blocked read|blocked write|blocked edit|blocked move|blocked delete/i.test(message)) {
         return [
             "Codex 调用失败了。",
-            "原因：当前请求触发了权限限制。",
-            message,
-            "如果你只是要处理当前会话里的附件或工作区文件，可以换一种更收敛的做法再试；如果你确实需要更高权限，请让 admin 账号来执行。",
+            "原因：当前请求触发了权限限制。如果你确实需要更高权限，请让 您的家庭管理员 来执行。",
         ].join("\n");
     }
     if (/permission|denied|not allowed|cancelled/i.test(message)) {
         return [
             "Codex 调用失败了。",
-            "原因：当前请求被权限策略拒绝了。",
-            message,
-            "如果这是合理操作，可以让 admin 账号来执行，或者把任务限制在当前会话工作区内再试。",
+            "原因：当前请求触发了权限限制。如果你确实需要更高权限，请让 您的家庭管理员 来执行。",
         ].join("\n");
     }
     return [

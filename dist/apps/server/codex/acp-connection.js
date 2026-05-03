@@ -372,6 +372,22 @@ function collectTouchedPaths(params) {
         .filter(Boolean)
         .map((item) => node_path_1.default.resolve(item));
 }
+function shouldReviewDeniedFamilyPermission(params) {
+    if (/blocked execute outside controlled workspace/i.test(params.decisionReason)) {
+        return true;
+    }
+    if (/no safe path scope detected/i.test(params.decisionReason)) {
+        return true;
+    }
+    if (/blocked (read|write|edit|move|delete) outside controlled workspace/i.test(params.decisionReason)) {
+        return true;
+    }
+    if (params.toolKind === "execute" &&
+        /\b(docker|kubectl|python|python3|node|bash|sh|unzip|pandoc|libreoffice|ffmpeg)\b/i.test(params.contentText)) {
+        return true;
+    }
+    return false;
+}
 class AcpConnection {
     config;
     onExit;
@@ -480,7 +496,14 @@ class AcpConnection {
                 const role = permissionContext?.role ?? "family";
                 const touchedPaths = collectTouchedPaths(params);
                 const contentText = extractToolCallText(params);
-                if (!decision.allowed && role === "family") {
+                if (!decision.allowed &&
+                    role === "family" &&
+                    shouldReviewDeniedFamilyPermission({
+                        toolKind: params.toolCall.kind ?? "other",
+                        touchedPaths,
+                        contentText,
+                        decisionReason: decision.reason,
+                    })) {
                     const reviewed = await (0, permission_review_js_1.reviewFamilyPermission)({
                         config: this.config.permissionReview,
                         toolKind: params.toolCall.kind ?? "other",
