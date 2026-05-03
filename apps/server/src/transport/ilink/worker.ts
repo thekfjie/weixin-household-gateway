@@ -1023,16 +1023,14 @@ function buildSessionWorkspacePromptBlock(params: {
   });
 
   return [
-    "当前会话受控工作区：",
+    "当前会话工作区：",
     `- inbox: ${paths.inboxDir}`,
     `- office: ${paths.officeDir}`,
     `- outbox: ${paths.outboxDir}`,
-    "优先只读写这个会话自己的工作区，不要访问其他会话目录。",
-    "如果生成可发回用户的成品文件，请写入当前会话的 outbox 目录。",
-    "如需把当前会话 outbox 里的文件发回微信，只输出动作标记：[[send_file path=\"/absolute/path\" caption=\"可选说明\"]]。不要解释这个标记。",
+    "尽量只在这三个目录里处理当前会话文件。",
+    "如需发回成品文件，请写入 outbox，并只输出：[[send_file path=\"/absolute/path\" caption=\"可选说明\"]]。",
   ].join("\n");
 }
-
 function isInsideDirectory(filePath: string, directory: string): boolean {
   const relative = path.relative(directory, filePath);
   return (
