@@ -117,6 +117,8 @@ cd /opt/weixin-household-gateway
 node dist/apps/server/configure-codex.js --apply
 ```
 
+如果你之前已经安装过，但后来调整了 `CODEX_CLI_BASE_URL`、`CODEX_CLI_API_KEY` 或 provider 相关配置，也要重新执行这一步，更新服务用户的 `~/.codex/config.toml` / `auth.json`。
+
 这里建议把：
 
 - `CODEX_CLI_MODEL` 当作主要对话模型

@@ -116,9 +116,13 @@ function buildConfigToml(env: DotEnv): string {
   const provider = readValue(
     env,
     "CODEX_CLI_PROVIDER",
-    "OpenAI",
+    baseUrl ? "openai_compat" : "openai",
   );
-  const providerName = readValue(env, "CODEX_CLI_PROVIDER_NAME", provider);
+  const providerName = readValue(
+    env,
+    "CODEX_CLI_PROVIDER_NAME",
+    baseUrl ? "OpenAI-compatible" : "OpenAI",
+  );
   const wireApi = readValue(env, "CODEX_CLI_WIRE_API", "responses");
   const model = readValue(env, "CODEX_CLI_MODEL", "gpt-5.4");
   const reviewModel = readValue(env, "CODEX_CLI_REVIEW_MODEL", model);
@@ -140,6 +144,18 @@ function buildConfigToml(env: DotEnv): string {
     900_000,
   );
 
+  const providerBlock = baseUrl
+    ? [
+        `[model_providers.${provider}]`,
+        `name = ${tomlString(providerName)}`,
+        `base_url = ${tomlString(baseUrl)}`,
+        `env_key = "OPENAI_API_KEY"`,
+        `wire_api = ${tomlString(wireApi)}`,
+        "requires_openai_auth = false",
+        "",
+      ]
+    : [];
+
   return [
     `model_provider = ${tomlString(provider)}`,
     `model = ${tomlString(model)}`,
@@ -151,12 +167,7 @@ function buildConfigToml(env: DotEnv): string {
     `model_context_window = ${contextWindow}`,
     `model_auto_compact_token_limit = ${compactLimit}`,
     "",
-    `[model_providers.${provider}]`,
-    `name = ${tomlString(providerName)}`,
-    ...(baseUrl ? [`base_url = ${tomlString(baseUrl)}`] : []),
-    `wire_api = ${tomlString(wireApi)}`,
-    `requires_openai_auth = ${baseUrl ? "false" : "true"}`,
-    "",
+    ...providerBlock,
   ].join("\n");
 }
 
