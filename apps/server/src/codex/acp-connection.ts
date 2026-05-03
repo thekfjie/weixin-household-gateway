@@ -302,6 +302,37 @@ function extractPathsFromRawInput(value: unknown): string[] {
   return [...new Set(result)];
 }
 
+function extractAbsolutePathsFromText(text: string): string[] {
+  const matches = text.match(
+    /(?:^|[\s"'`=:(])((?:\/[^\s"'`)<>\]]+)+|[A-Za-z]:[\\/][^\s"'`)<>\]]+)/g,
+  );
+  if (!matches) {
+    return [];
+  }
+
+  const paths = matches
+    .map((item) =>
+      item.replace(/^[\s"'`=:(]+/, "").replace(/[\s"'`),:;]+$/, ""),
+    )
+    .filter((item) => path.isAbsolute(item) || /^[A-Za-z]:[\\/]/.test(item))
+    .map((item) => path.resolve(item));
+
+  return [...new Set(paths)];
+}
+
+function extractPathsFromToolCallText(params: RequestPermissionRequest): string[] {
+  const snippets = params.toolCall.content
+    ?.map((item) =>
+      item.type === "content" && item.content.type === "text"
+        ? item.content.text
+        : "",
+    )
+    .filter(Boolean) ?? [];
+
+  const paths = snippets.flatMap((snippet) => extractAbsolutePathsFromText(snippet));
+  return [...new Set(paths)];
+}
+
 function choosePermissionOption(
   options: PermissionOption[],
   preferredKinds: ReadonlySet<string>,
@@ -328,6 +359,7 @@ function decidePermission(
   const touchedPaths = [
     ...(params.toolCall.locations?.map((item) => item.path) ?? []),
     ...extractPathsFromRawInput(params.toolCall.rawInput),
+    ...extractPathsFromToolCallText(params),
   ]
     .filter(Boolean)
     .map((item) => path.resolve(item));

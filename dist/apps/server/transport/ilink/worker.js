@@ -799,6 +799,11 @@ function buildMediaAckReply(params) {
         ? `收到附件：${names}。你再发一句处理要求，我再开始处理。`
         : `收到${names ? `：${names}` : "附件"}。你再说一句想让我怎么处理，我再开始。`;
 }
+function buildInboundAttachmentAckPlaceholders(attachments) {
+    return attachments.map((attachment) => ({
+        fileName: sanitizeFileName(attachment.fileName),
+    }));
+}
 function extractQuotedText(text) {
     const match = text.match(/["'“”‘’]([^"'“”‘’]+)["'“”‘’]/);
     return match?.[1]?.trim() || undefined;
@@ -1438,6 +1443,27 @@ class WechatWorker {
             sessionId: activeSession.id,
         });
         const sessionMemory = parseSessionMemory(activeSession.memoryJson);
+        if (inbound.attachments.length > 0 && !inbound.text.trim()) {
+            const ack = buildMediaAckReply({
+                role: route.role,
+                attachments: buildInboundAttachmentAckPlaceholders(inbound.attachments),
+            });
+            const clientId = await (0, media_js_1.sendTextMessage)({
+                client,
+                toUserId: inbound.contactId,
+                contextToken: inbound.contextToken,
+                text: ack,
+            });
+            this.options.database.appendMessage({
+                id: buildMessageId("outbound"),
+                sessionId: activeSession.id,
+                direction: "outbound",
+                messageType: "text",
+                textContent: ack,
+                createdAt: new Date().toISOString(),
+                sourceMessageId: clientId || inbound.sourceMessageId,
+            });
+        }
         const downloadedAttachments = inbound.attachments.length > 0
             ? await downloadInboundAttachments({
                 attachments: inbound.attachments,
@@ -1480,25 +1506,27 @@ class WechatWorker {
                 contextToken: activeSession.contextToken,
                 lastActiveAt: activeSession.lastActiveAt,
             });
-            const ack = buildMediaAckReply({
-                role: route.role,
-                attachments: downloadedAttachments,
-            });
-            const clientId = await (0, media_js_1.sendTextMessage)({
-                client,
-                toUserId: inbound.contactId,
-                contextToken: inbound.contextToken,
-                text: ack,
-            });
-            this.options.database.appendMessage({
-                id: buildMessageId("outbound"),
-                sessionId: nextSession.id,
-                direction: "outbound",
-                messageType: "text",
-                textContent: ack,
-                createdAt: new Date().toISOString(),
-                sourceMessageId: clientId || inbound.sourceMessageId,
-            });
+            if (downloadedAttachments.some((attachment) => attachment.downloadStatus === "failed")) {
+                const failureAck = buildMediaAckReply({
+                    role: route.role,
+                    attachments: downloadedAttachments,
+                });
+                const clientId = await (0, media_js_1.sendTextMessage)({
+                    client,
+                    toUserId: inbound.contactId,
+                    contextToken: inbound.contextToken,
+                    text: failureAck,
+                });
+                this.options.database.appendMessage({
+                    id: buildMessageId("outbound"),
+                    sessionId: nextSession.id,
+                    direction: "outbound",
+                    messageType: "text",
+                    textContent: failureAck,
+                    createdAt: new Date().toISOString(),
+                    sourceMessageId: clientId || inbound.sourceMessageId,
+                });
+            }
             return;
         }
         const parsedCommand = (0, index_js_1.parseBuiltInCommand)(inbound.text) ??

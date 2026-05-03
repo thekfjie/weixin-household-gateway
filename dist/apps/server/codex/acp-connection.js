@@ -225,6 +225,26 @@ function extractPathsFromRawInput(value) {
     }
     return [...new Set(result)];
 }
+function extractAbsolutePathsFromText(text) {
+    const matches = text.match(/(?:^|[\s"'`=:(])((?:\/[^\s"'`)<>\]]+)+|[A-Za-z]:[\\/][^\s"'`)<>\]]+)/g);
+    if (!matches) {
+        return [];
+    }
+    const paths = matches
+        .map((item) => item.replace(/^[\s"'`=:(]+/, "").replace(/[\s"'`),:;]+$/, ""))
+        .filter((item) => node_path_1.default.isAbsolute(item) || /^[A-Za-z]:[\\/]/.test(item))
+        .map((item) => node_path_1.default.resolve(item));
+    return [...new Set(paths)];
+}
+function extractPathsFromToolCallText(params) {
+    const snippets = params.toolCall.content
+        ?.map((item) => item.type === "content" && item.content.type === "text"
+        ? item.content.text
+        : "")
+        .filter(Boolean) ?? [];
+    const paths = snippets.flatMap((snippet) => extractAbsolutePathsFromText(snippet));
+    return [...new Set(paths)];
+}
 function choosePermissionOption(options, preferredKinds) {
     for (const option of options) {
         if (preferredKinds.has(option.kind)) {
@@ -242,6 +262,7 @@ function decidePermission(config, context, params) {
     const touchedPaths = [
         ...(params.toolCall.locations?.map((item) => item.path) ?? []),
         ...extractPathsFromRawInput(params.toolCall.rawInput),
+        ...extractPathsFromToolCallText(params),
     ]
         .filter(Boolean)
         .map((item) => node_path_1.default.resolve(item));
