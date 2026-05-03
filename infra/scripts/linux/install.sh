@@ -1198,11 +1198,21 @@ configure_codex_cli() {
 }
 
 print_summary() {
+  local codex_command
+  local codex_home
+  codex_command="$(resolve_codex_command)"
+  codex_home="$(service_user_home)/.codex"
   echo ""
   echo "安装完成。"
   echo "安装清单："
   echo "  $(state_app_file)"
   echo "  $(state_data_file)"
+  echo ""
+  echo "关键路径："
+  echo "  应用目录: ${APP_DIR}"
+  echo "  数据目录: ${DATA_DIR}"
+  echo "  Codex 命令: ${codex_command}"
+  echo "  Codex 配置: ${codex_home}"
   echo ""
   echo "常用命令："
   echo "  sudo systemctl status ${SERVICE_NAME}"

@@ -64,6 +64,11 @@ HOME=/home/ubuntu
 /home/ubuntu/.codex                    服务用户自己的 Codex 配置和认证
 ```
 
+这里要特别分清两件事：
+
+- `pnpm` / `npm` 安装出来的是 `codex` 可执行文件，通常在服务用户自己的命令目录里。
+- `codex` 真正读取的是 `~/.codex/config.toml` 和 `~/.codex/auth.json`，不是可执行文件所在目录。
+
 不建议把运行数据直接放进 `/opt` 项目目录。这样重装/更新代码时更干净，卸载时也能明确选择“删除程序但保留数据”。如果你想看起来直观，可以在项目目录加一个软链接：
 
 ```bash
@@ -167,6 +172,9 @@ git pull
 corepack pnpm build
 sudo systemctl restart weixin-household-gateway
 ```
+
+注意：这个项目在服务器上直接运行 `dist/` 下的编译产物。
+如果只改了 `apps/server/src/*` 却没有重新构建，服务器实际执行的仍然会是旧逻辑。
 
 ### 4. 多微信账号
 

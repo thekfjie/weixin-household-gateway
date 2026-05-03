@@ -321,8 +321,17 @@ async function run(): Promise<void> {
   }
 
   results.push(await checkCommand(config.codex.admin.command, ["--version"]));
+  if (config.codex.admin.codexHome) {
+    results.push(ok("Codex home admin", config.codex.admin.codexHome));
+  }
   if (config.codex.family.command !== config.codex.admin.command) {
     results.push(await checkCommand(config.codex.family.command, ["--version"]));
+  }
+  if (
+    config.codex.family.codexHome &&
+    config.codex.family.codexHome !== config.codex.admin.codexHome
+  ) {
+    results.push(ok("Codex home family", config.codex.family.codexHome));
   }
   if (config.codex.admin.backend === "acp") {
     results.push(await checkAcpCommand(config.codex.admin.acpCommand));
