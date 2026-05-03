@@ -75,7 +75,7 @@ ln -s /var/lib/weixin-household-gateway data-live
 
 默认推荐：`ACP + 第三方 API key`
 
-安装器会在交互过程中默认先让你选择 `api_key` 模式，并直接提示输入：
+安装器会在交互过程中默认先让你选择“第三方 API key”模式，并直接提示输入：
 
 - `CODEX_CLI_BASE_URL`
 - `CODEX_CLI_API_KEY`

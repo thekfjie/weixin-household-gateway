@@ -116,7 +116,7 @@ function buildConfigToml(env: DotEnv): string {
   const provider = readValue(
     env,
     "CODEX_CLI_PROVIDER",
-    baseUrl ? "compat" : "OpenAI",
+    "OpenAI",
   );
   const providerName = readValue(env, "CODEX_CLI_PROVIDER_NAME", provider);
   const wireApi = readValue(env, "CODEX_CLI_WIRE_API", "responses");

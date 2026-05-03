@@ -609,7 +609,7 @@ configure_interactively() {
   DATA_DIR="$(prompt_default "数据目录" "${DATA_DIR}")"
   PORT="$(prompt_default "服务端口" "${PORT}")"
   TIMEZONE="$(prompt_default "业务时区" "${TIMEZONE}")"
-  CODEX_CLI_AUTH_MODE="$(prompt_default "Codex 认证模式(api_key/login)" "${CODEX_CLI_AUTH_MODE}")"
+  CODEX_CLI_AUTH_MODE="$(prompt_default "Codex 认证方式(第三方 API key/login)" "${CODEX_CLI_AUTH_MODE}")"
 
   validate_choice "${CODEX_CLI_AUTH_MODE}" api_key login
 
@@ -740,10 +740,6 @@ write_env_file() {
   local admin_workspace="${DATA_DIR}/runtime/admin"
   local family_workspace="${DATA_DIR}/runtime/family"
   local codex_provider="OpenAI"
-
-  if [[ -n "${CODEX_CLI_BASE_URL}" ]]; then
-    codex_provider="compat"
-  fi
 
   cat > "${target_file}" <<EOF
 PORT=${PORT}
@@ -938,10 +934,6 @@ run_node_as_service_user() {
   local script_path="$1"
   shift
   local codex_provider="OpenAI"
-
-  if [[ -n "${CODEX_CLI_BASE_URL}" ]]; then
-    codex_provider="compat"
-  fi
 
   local env_args=(
     "PORT=${PORT}"
