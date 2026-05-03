@@ -4,6 +4,12 @@ export type CodexMode = "suggest" | "auto-edit" | "full-auto";
 export type CodexEnvMode = "inherit" | "minimal";
 export type CodexBackendKind = "cli" | "acp";
 export type CodexAcpAuthMode = "auto" | "env" | "none";
+export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
+
+export interface CodexRoleOverrides {
+  model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+}
 
 export interface CodexRuntimeConfig {
   backend: CodexBackendKind;
@@ -18,6 +24,7 @@ export interface CodexRuntimeConfig {
   workspace: string;
   envMode: CodexEnvMode;
   envPassthrough: string[];
+  roleOverrides?: CodexRoleOverrides | undefined;
 }
 
 export interface FamilyPolicyConfig {

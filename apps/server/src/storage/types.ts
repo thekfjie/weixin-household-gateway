@@ -47,3 +47,10 @@ export interface AttachmentRecord {
   outboundStatus: string;
   createdAt: string;
 }
+
+export interface CodexRoleSettingsRecord {
+  role: UserRole;
+  model?: string;
+  reasoningEffort?: string;
+  updatedAt: string;
+}

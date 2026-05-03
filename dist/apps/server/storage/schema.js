@@ -1,4 +1,7 @@
-export const SQLITE_SCHEMA = `
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.SQLITE_SCHEMA = void 0;
+exports.SQLITE_SCHEMA = `
 CREATE TABLE IF NOT EXISTS wechat_accounts (
   id TEXT PRIMARY KEY,
   display_name TEXT,

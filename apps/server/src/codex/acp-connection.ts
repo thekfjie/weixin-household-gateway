@@ -224,7 +224,18 @@ export class AcpConnection {
     }
 
     const env = buildAcpEnv(this.config);
-    const proc = spawn(this.config.acpCommand, this.config.acpArgs, {
+    const acpArgs = [...this.config.acpArgs];
+    if (this.config.roleOverrides?.model) {
+      acpArgs.push("-c", `model=${JSON.stringify(this.config.roleOverrides.model)}`);
+    }
+    if (this.config.roleOverrides?.reasoningEffort) {
+      acpArgs.push(
+        "-c",
+        `model_reasoning_effort=${JSON.stringify(this.config.roleOverrides.reasoningEffort)}`,
+      );
+    }
+
+    const proc = spawn(this.config.acpCommand, acpArgs, {
       cwd: this.config.workspace,
       env,
       shell: process.platform === "win32",

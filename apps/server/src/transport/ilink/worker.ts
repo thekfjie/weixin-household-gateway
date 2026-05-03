@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
-import { AppConfig, UserRole } from "../../config/types.js";
+import {
+  AppConfig,
+  CodexReasoningEffort,
+  UserRole,
+} from "../../config/types.js";
 import { ParsedCommand, parseBuiltInCommand } from "../../commands/index.js";
 import {
   CodexBackend,
@@ -43,6 +47,10 @@ import {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isReasoningEffort(value: string): value is CodexReasoningEffort {
+  return ["low", "medium", "high", "xhigh"].includes(value);
 }
 
 function buildMessageId(prefix: string): string {
@@ -491,6 +499,7 @@ function buildCommandReply(params: {
   account: WechatAccountRecord;
   config: AppConfig;
   onRoleModeChanged?: (nextRole: UserRole) => void;
+  onCodexSettingsChanged?: (role: UserRole) => void;
 }): string {
   switch (params.command.name) {
     case "/time":
@@ -512,6 +521,7 @@ function buildCommandReply(params: {
             "/file <文件路径> [说明] 发送允许目录里的服务器文件",
             "/files 查看最近可发送文件",
             "/accounts 查看已绑定微信账号",
+            "/codex 查看或修改 admin/family 的模型与思考强度",
           ].join("\n")
         : [
             "可用命令：",
@@ -576,6 +586,15 @@ function buildCommandReply(params: {
       return buildSessionsReply(params);
     case "/accounts":
       return buildAccountsReply(params);
+    case "/codex":
+      return buildCodexSettingsReply({
+        database: params.database,
+        role: params.role,
+        command: params.command,
+        ...(params.onCodexSettingsChanged
+          ? { onChanged: params.onCodexSettingsChanged }
+          : {}),
+      });
     case "/files":
       return buildFilesReply(params);
     case "/summary":
@@ -686,6 +705,114 @@ function buildAccountsReply(params: {
       ].join("  "),
     ),
   ].join("\n");
+}
+
+function formatCodexRoleSettings(params: {
+  database: AppDatabase;
+  role: UserRole;
+}): string {
+  const settings = params.database.getCodexRoleSettings(params.role);
+  return [
+    `role=${params.role}`,
+    `model=${settings?.model ?? "(default)"}`,
+    `reasoning=${settings?.reasoningEffort ?? "(default)"}`,
+  ].join("\n");
+}
+
+function buildCodexSettingsReply(params: {
+  database: AppDatabase;
+  role: UserRole;
+  command: ParsedCommand;
+  onChanged?: (role: UserRole) => void;
+}): string {
+  if (params.role !== "admin") {
+    return "这个命令只对 admin 开放。";
+  }
+
+  const roleArg = params.command.args[0]?.trim().toLowerCase();
+  if (!roleArg) {
+    return [
+      "当前 Codex 角色配置：",
+      formatCodexRoleSettings({ database: params.database, role: "admin" }),
+      "",
+      formatCodexRoleSettings({ database: params.database, role: "family" }),
+      "",
+      "用法示例：",
+      "/codex admin",
+      "/codex family",
+      "/codex admin model gpt-5.5",
+      "/codex family reasoning high",
+      "/codex admin reset",
+    ].join("\n");
+  }
+
+  if (roleArg !== "admin" && roleArg !== "family") {
+    return "用法：/codex admin|family [model <模型>|reasoning <low|medium|high|xhigh>|reset]";
+  }
+
+  const targetRole = roleArg as UserRole;
+  const action = params.command.args[1]?.trim().toLowerCase();
+  if (!action) {
+    return formatCodexRoleSettings({
+      database: params.database,
+      role: targetRole,
+    });
+  }
+
+  if (action === "reset") {
+    params.database.saveCodexRoleSettings({
+      role: targetRole,
+      model: "",
+      reasoningEffort: "",
+    });
+    params.onChanged?.(targetRole);
+    return [
+      `已重置 ${targetRole} 的 Codex 配置。`,
+      "已刷新对应后端；后续该角色会回到默认配置。",
+    ].join("\n");
+  }
+
+  if (action === "model") {
+    const model = params.command.args[2]?.trim();
+    if (!model) {
+      return "用法：/codex admin|family model <模型名>";
+    }
+
+    const current = params.database.getCodexRoleSettings(targetRole);
+    params.database.saveCodexRoleSettings({
+      role: targetRole,
+      model,
+      ...(current?.reasoningEffort
+        ? { reasoningEffort: current.reasoningEffort }
+        : {}),
+    });
+    params.onChanged?.(targetRole);
+    return [
+      `已设置 ${targetRole} 模型：${model}`,
+      "已刷新对应后端；后续该角色会按新模型运行。",
+    ].join("\n");
+  }
+
+  if (action === "reasoning") {
+    const reasoning = params.command.args[2]?.trim().toLowerCase();
+    if (!reasoning || !isReasoningEffort(reasoning)) {
+      return "用法：/codex admin|family reasoning low|medium|high|xhigh";
+    }
+
+    const current = params.database.getCodexRoleSettings(targetRole);
+    params.database.saveCodexRoleSettings({
+      role: targetRole,
+      ...(current?.model ? { model: current.model } : {}),
+      reasoningEffort: reasoning,
+    });
+    params.onChanged?.(targetRole);
+    return [
+      `已设置 ${targetRole} 思考强度：${reasoning}`,
+      "已刷新对应后端；后续该角色会按新思考强度运行。",
+    ].join("\n");
+  }
+
+  return "用法：/codex admin|family [model <模型>|reasoning <low|medium|high|xhigh>|reset]";
 }
 
 function buildSessionsReply(params: {
@@ -1596,13 +1723,43 @@ export class WechatWorker {
 
   private loopPromise: Promise<void> | undefined;
 
-  private readonly codexBackends: Record<UserRole, CodexBackend>;
+  private codexBackends: Record<UserRole, CodexBackend>;
 
   constructor(private readonly options: WechatWorkerOptions) {
     this.codexBackends = {
-      admin: createCodexBackend(options.config.codex.admin),
-      family: createCodexBackend(options.config.codex.family),
+      admin: createCodexBackend(
+        this.buildRuntimeCodexConfig("admin"),
+      ),
+      family: createCodexBackend(
+        this.buildRuntimeCodexConfig("family"),
+      ),
     };
+  }
+
+  private buildRuntimeCodexConfig(role: UserRole) {
+    const baseConfig = this.options.config.codex[role];
+    const settings = this.options.database.getCodexRoleSettings(role);
+    return {
+      ...baseConfig,
+      ...(settings?.model || settings?.reasoningEffort
+        ? {
+            roleOverrides: {
+              ...(settings?.model ? { model: settings.model } : {}),
+              ...(settings?.reasoningEffort &&
+              isReasoningEffort(settings.reasoningEffort)
+                ? { reasoningEffort: settings.reasoningEffort }
+                : {}),
+            },
+          }
+        : {}),
+    };
+  }
+
+  private rebuildCodexBackend(role: UserRole): void {
+    this.codexBackends[role].dispose();
+    this.codexBackends[role] = createCodexBackend(
+      this.buildRuntimeCodexConfig(role),
+    );
   }
 
   start(): void {
@@ -1890,6 +2047,9 @@ export class WechatWorker {
                 onRoleModeChanged: () => {
                   this.codexBackends.admin.clearSession(activeSession.id);
                   this.codexBackends.family.clearSession(activeSession.id);
+                },
+                onCodexSettingsChanged: (changedRole) => {
+                  this.rebuildCodexBackend(changedRole);
                 },
               });
       } catch (error) {

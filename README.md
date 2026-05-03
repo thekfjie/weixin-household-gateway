@@ -243,6 +243,7 @@ node dist/apps/server/accounts.js enable <account_id>
 /recent
 /accounts
 /sessions
+/codex
 /files
 /file /tmp/test.txt 测试文件
 ```
@@ -263,8 +264,22 @@ admin 也可以说“把 /tmp/test.txt 发给我”。family 不能触发服务�
 - `/yesterday`：查看昨天的上一段对话
 - `/sessions`：admin 查看最近活跃会话
 - `/accounts`：admin 查看已绑定微信账号
+- `/codex`：admin 查看或修改 admin/family 的模型与思考强度
 - `/files`：admin 查看最近可发送文件
 - `/file <路径> [说明]`：admin 发送白名单目录内文件
+
+`/codex` 示例：
+
+```text
+/codex
+/codex admin
+/codex admin model gpt-5.5
+/codex admin reasoning high
+/codex family model gpt-5.4
+/codex family reset
+```
+
+这套配置不会拆 `~/.codex`，而是在对应角色启动 `codex-acp` 时按角色覆盖 `model` 和 `model_reasoning_effort`。
 
 另外，如果用户自然提到“昨天”“上一次”“前面的那个”，系统也会在内部优先附带上一段对话摘要，供模型按需参考，而不是每次都强行重塞整段历史。
 

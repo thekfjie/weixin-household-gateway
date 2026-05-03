@@ -5,6 +5,7 @@ import { UserRole } from "../config/types.js";
 import { SQLITE_SCHEMA } from "./schema.js";
 import {
   AttachmentRecord,
+  CodexRoleSettingsRecord,
   MessageRecord,
   SessionRecord,
   WechatAccountRecord,
@@ -58,6 +59,19 @@ function toAttachmentRecord(row: Record<string, unknown>): AttachmentRecord {
     sizeBytes: Number(row.size_bytes),
     outboundStatus: String(row.outbound_status),
     createdAt: String(row.created_at),
+  };
+}
+
+function toCodexRoleSettingsRecord(
+  row: Record<string, unknown>,
+): CodexRoleSettingsRecord {
+  return {
+    role: String(row.role) as UserRole,
+    ...(row.model ? { model: String(row.model) } : {}),
+    ...(row.reasoning_effort
+      ? { reasoningEffort: String(row.reasoning_effort) }
+      : {}),
+    updatedAt: String(row.updated_at),
   };
 }
 
@@ -221,6 +235,47 @@ export class AppDatabase {
     }
 
     return updated;
+  }
+
+  getCodexRoleSettings(role: UserRole): CodexRoleSettingsRecord | undefined {
+    const statement = this.db.prepare(
+      "SELECT * FROM codex_role_settings WHERE role = ?",
+    );
+    const row = statement.get(role) as Record<string, unknown> | undefined;
+    return row ? toCodexRoleSettingsRecord(row) : undefined;
+  }
+
+  saveCodexRoleSettings(input: {
+    role: UserRole;
+    model?: string;
+    reasoningEffort?: string;
+  }): CodexRoleSettingsRecord {
+    const now = createNow();
+    this.db
+      .prepare(
+        `
+        INSERT INTO codex_role_settings (
+          role, model, reasoning_effort, updated_at
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(role) DO UPDATE SET
+          model = excluded.model,
+          reasoning_effort = excluded.reasoning_effort,
+          updated_at = excluded.updated_at
+        `,
+      )
+      .run(
+        input.role,
+        input.model ?? null,
+        input.reasoningEffort ?? null,
+        now,
+      );
+
+    const saved = this.getCodexRoleSettings(input.role);
+    if (!saved) {
+      throw new Error(`Failed to save codex role settings: ${input.role}`);
+    }
+
+    return saved;
   }
 
   getPollingCursor(accountId: string): string | undefined {

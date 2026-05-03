@@ -17,6 +17,7 @@ const COMMANDS: readonly BuiltInCommand[] = [
   "/sendfile",
   "/files",
   "/accounts",
+  "/codex",
 ];
 
 function splitCommandArgs(raw: string): string[] {
