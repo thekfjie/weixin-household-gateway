@@ -8,6 +8,8 @@ import {
   ndJsonStream,
   PROTOCOL_VERSION,
   SessionId,
+  type PermissionOption,
+  type RequestPermissionRequest,
   type AuthMethod,
   type AuthMethodEnvVar,
 } from "@agentclientprotocol/sdk";
@@ -22,12 +24,57 @@ const ACP_AUTH_ENV_KEYS = [
   "CODEX_API_KEY",
 ] as const;
 
+interface SessionPermissionContext {
+  additionalDirectories: string[];
+  readOnlyDirectories: string[];
+}
+
+interface PermissionDecision {
+  allowed: boolean;
+  reason: string;
+  optionId?: string;
+}
+
 function describeToolCall(update: {
   title?: string | null;
   kind?: string | null;
   toolCallId?: string;
 }): string {
   return update.title ?? update.kind ?? update.toolCallId ?? "tool";
+}
+
+function formatToolCallDetails(params: RequestPermissionRequest): string {
+  const parts: string[] = [];
+  const title = describeToolCall(params.toolCall);
+  parts.push(title);
+  if (params.toolCall.kind) {
+    parts.push(`kind=${params.toolCall.kind}`);
+  }
+  const locations =
+    params.toolCall.locations
+      ?.map((item) => item.path)
+      .filter((item): item is string => Boolean(item))
+      .slice(0, 4) ?? [];
+  if (locations.length > 0) {
+    parts.push(`paths=${locations.join(",")}`);
+  }
+  if (params.toolCall.content?.length) {
+    const textSnippets = params.toolCall.content
+      .map((item) =>
+        item.type === "content" && item.content.type === "text"
+          ? item.content.text
+          : undefined,
+      )
+      .filter((item): item is string => Boolean(item))
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .slice(0, 2);
+    if (textSnippets.length > 0) {
+      parts.push(`content=${textSnippets.join(" | ")}`);
+    }
+  }
+
+  return parts.join(" ");
 }
 
 function defaultHome(): string | undefined {
@@ -194,6 +241,179 @@ function requiredAuthEnvVars(methods: AuthMethod[] | undefined): string[] {
   return [...names].sort();
 }
 
+function normalizePathList(paths: string[] | undefined): string[] {
+  if (!paths?.length) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      paths
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => path.resolve(item)),
+    ),
+  ];
+}
+
+function isInsideDirectory(filePath: string, directory: string): boolean {
+  const relative = path.relative(directory, filePath);
+  return (
+    relative === "" ||
+    (!!relative && !relative.startsWith("..") && !path.isAbsolute(relative))
+  );
+}
+
+function extractPathsFromRawInput(value: unknown): string[] {
+  if (!value || typeof value !== "object") {
+    return [];
+  }
+
+  const result: string[] = [];
+  const pushIfPath = (candidate: unknown): void => {
+    if (typeof candidate === "string" && candidate.trim()) {
+      const trimmed = candidate.trim();
+      if (path.isAbsolute(trimmed) || /^[A-Za-z]:[\\/]/.test(trimmed)) {
+        result.push(path.resolve(trimmed));
+      }
+    }
+  };
+
+  for (const [key, candidate] of Object.entries(value as Record<string, unknown>)) {
+    if (
+      key === "path" ||
+      key === "cwd" ||
+      key.endsWith("Path") ||
+      key.endsWith("_path")
+    ) {
+      pushIfPath(candidate);
+      continue;
+    }
+    if (
+      (key === "paths" || key.endsWith("Paths") || key.endsWith("_paths")) &&
+      Array.isArray(candidate)
+    ) {
+      for (const item of candidate) {
+        pushIfPath(item);
+      }
+    }
+  }
+
+  return [...new Set(result)];
+}
+
+function choosePermissionOption(
+  options: PermissionOption[],
+  preferredKinds: ReadonlySet<string>,
+): PermissionOption | undefined {
+  for (const option of options) {
+    if (preferredKinds.has(option.kind)) {
+      return option;
+    }
+  }
+
+  return options[0];
+}
+
+function decidePermission(
+  config: CodexRuntimeConfig,
+  context: SessionPermissionContext | undefined,
+  params: RequestPermissionRequest,
+): PermissionDecision {
+  const allowedRoots = normalizePathList([
+    config.workspace,
+    ...(context?.additionalDirectories ?? []),
+  ]);
+  const readOnlyRoots = normalizePathList(context?.readOnlyDirectories);
+  const touchedPaths = [
+    ...(params.toolCall.locations?.map((item) => item.path) ?? []),
+    ...extractPathsFromRawInput(params.toolCall.rawInput),
+  ]
+    .filter(Boolean)
+    .map((item) => path.resolve(item));
+  const kind = params.toolCall.kind ?? "other";
+  const describeRoots = allowedRoots.join(", ") || config.workspace;
+
+  const allowKinds = new Set<string>(["allow_once", "allow_always"]);
+  const rejectKinds = new Set<string>(["reject_once", "reject_always"]);
+
+  if (kind === "read") {
+    if (
+      touchedPaths.length > 0 &&
+      touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)))
+    ) {
+      const option = choosePermissionOption(params.options, allowKinds);
+      if (option) {
+        return {
+          allowed: true,
+          reason: `allow read inside ${describeRoots}`,
+          optionId: option.optionId,
+        };
+      }
+    }
+  }
+
+  if (kind === "edit" || kind === "move" || kind === "delete") {
+    if (
+      touchedPaths.length > 0 &&
+      touchedPaths.every(
+        (item) =>
+          allowedRoots.some((root) => isInsideDirectory(item, root)) &&
+          !readOnlyRoots.some((root) => isInsideDirectory(item, root)),
+      )
+    ) {
+      const option = choosePermissionOption(params.options, allowKinds);
+      if (option) {
+        return {
+          allowed: true,
+          reason: `allow ${kind} inside writable session workspace`,
+          optionId: option.optionId,
+        };
+      }
+    }
+  }
+
+  if (kind === "execute") {
+    const contentText =
+      params.toolCall.content
+        ?.map((item) =>
+          item.type === "content" && item.content.type === "text"
+            ? item.content.text
+            : "",
+        )
+        .join("\n")
+        .toLowerCase() ?? "";
+    const looksLocalProcessing =
+      /(unzip\b|python\b|python3\b|node\b|pandoc\b|ffmpeg\b|magick\b|convert\b|file\b|ls\b|cat\b|grep\b|rg\b|find\b|sed\b)/.test(
+        contentText,
+      );
+    if (
+      looksLocalProcessing &&
+      touchedPaths.length > 0 &&
+      touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)))
+    ) {
+      const option = choosePermissionOption(params.options, allowKinds);
+      if (option) {
+        return {
+          allowed: true,
+          reason: "allow local processing command inside controlled workspace",
+          optionId: option.optionId,
+        };
+      }
+    }
+  }
+
+  const rejectOption = choosePermissionOption(params.options, rejectKinds);
+  return {
+    allowed: false,
+    reason:
+      touchedPaths.length > 0
+        ? `blocked ${kind} outside controlled workspace`
+        : `blocked ${kind}; no safe path scope detected`,
+    ...(rejectOption ? { optionId: rejectOption.optionId } : {}),
+  };
+}
+
 export class AcpConnection {
   private process: ChildProcess | undefined;
 
@@ -203,7 +423,13 @@ export class AcpConnection {
 
   private loadSessionSupported = false;
 
+  private additionalDirectoriesSupported = false;
+
   private readonly collectors = new Map<string, AcpResponseCollector>();
+
+  private readonly sessionPermissions = new Map<SessionId, SessionPermissionContext>();
+
+  private readonly lastPermissionDecisionBySession = new Map<SessionId, string>();
 
   constructor(
     private readonly config: CodexRuntimeConfig,
@@ -216,6 +442,29 @@ export class AcpConnection {
 
   unregisterCollector(sessionId: SessionId): void {
     this.collectors.delete(sessionId);
+  }
+
+  setSessionPermissions(
+    sessionId: SessionId,
+    context: SessionPermissionContext,
+  ): void {
+    this.sessionPermissions.set(sessionId, {
+      additionalDirectories: normalizePathList(context.additionalDirectories),
+      readOnlyDirectories: normalizePathList(context.readOnlyDirectories),
+    });
+  }
+
+  clearSessionPermissions(sessionId: SessionId): void {
+    this.sessionPermissions.delete(sessionId);
+    this.lastPermissionDecisionBySession.delete(sessionId);
+  }
+
+  consumeLastPermissionDecision(sessionId: SessionId): string | undefined {
+    const message = this.lastPermissionDecisionBySession.get(sessionId);
+    if (message) {
+      this.lastPermissionDecisionBySession.delete(sessionId);
+    }
+    return message;
   }
 
   async ensureReady(): Promise<ClientSideConnection> {
@@ -255,9 +504,12 @@ export class AcpConnection {
       cleanupSubprocessStdio(proc);
       this.ready = false;
       this.loadSessionSupported = false;
+      this.additionalDirectoriesSupported = false;
       this.connection = undefined;
       this.process = undefined;
       this.collectors.clear();
+      this.sessionPermissions.clear();
+      this.lastPermissionDecisionBySession.clear();
       this.onExit();
     });
 
@@ -293,12 +545,35 @@ export class AcpConnection {
         this.collectors.get(params.sessionId)?.handleUpdate(params);
       },
       requestPermission: async (params) => {
+        const decision = decidePermission(
+          this.config,
+          this.sessionPermissions.get(params.sessionId),
+          params,
+        );
+        const detail = formatToolCallDetails(params);
+        this.lastPermissionDecisionBySession.set(
+          params.sessionId,
+          `${decision.reason}: ${detail}`,
+        );
+        if (decision.allowed && decision.optionId) {
+          console.log(
+            `[codex:acp] permission request allowed: ${decision.reason}: ${detail}`,
+          );
+          return {
+            outcome: {
+              outcome: "selected",
+              optionId: decision.optionId,
+            },
+          };
+        }
         console.warn(
-          `[codex:acp] permission request denied: ${describeToolCall(params.toolCall)}`,
+          `[codex:acp] permission request denied: ${decision.reason}: ${detail}`,
         );
         return {
           outcome: {
-            outcome: "cancelled",
+            ...(decision.optionId
+              ? { outcome: "selected", optionId: decision.optionId }
+              : { outcome: "cancelled" }),
           },
         };
       },
@@ -319,11 +594,16 @@ export class AcpConnection {
     const authMethods = initializeResponse.authMethods ?? [];
     this.loadSessionSupported =
       initializeResponse.agentCapabilities?.loadSession === true;
+    this.additionalDirectoriesSupported =
+      Boolean(
+        initializeResponse.agentCapabilities?.sessionCapabilities
+          ?.additionalDirectories,
+      );
     console.log(
       `[codex:acp] auth methods: ${describeAuthMethods(authMethods, env)}`,
     );
     console.log(
-      `[codex:acp] loadSession=${this.loadSessionSupported}`,
+      `[codex:acp] loadSession=${this.loadSessionSupported}, additionalDirectories=${this.additionalDirectoriesSupported}`,
     );
 
     const authMethod =
@@ -357,7 +637,10 @@ export class AcpConnection {
   dispose(): void {
     this.ready = false;
     this.loadSessionSupported = false;
+    this.additionalDirectoriesSupported = false;
     this.collectors.clear();
+    this.sessionPermissions.clear();
+    this.lastPermissionDecisionBySession.clear();
     this.connection = undefined;
     if (this.process) {
       const proc = this.process;
@@ -369,5 +652,9 @@ export class AcpConnection {
 
   supportsLoadSession(): boolean {
     return this.loadSessionSupported;
+  }
+
+  supportsAdditionalDirectories(): boolean {
+    return this.additionalDirectoriesSupported;
   }
 }

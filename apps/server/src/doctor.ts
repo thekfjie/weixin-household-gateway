@@ -194,7 +194,7 @@ async function checkAcpSession(
     );
     return ok(
       name,
-      `session=${response.sessionId}, loadSession=${connection.supportsLoadSession()}`,
+      `session=${response.sessionId}, loadSession=${connection.supportsLoadSession()}, additionalDirectories=${connection.supportsAdditionalDirectories()}`,
     );
   } catch (error) {
     return fail(name, error instanceof Error ? error.message : String(error));

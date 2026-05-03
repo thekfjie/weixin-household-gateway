@@ -80,13 +80,22 @@ export class AcpCodexBackend implements CodexBackend {
 
   private async runOnce(request: CodexBackendRequest): Promise<CodexRunResult> {
     fs.mkdirSync(this.config.workspace, { recursive: true });
+    const additionalDirectories = normalizeDirectories(
+      request.additionalDirectories,
+    );
+    const readOnlyDirectories = normalizeDirectories(request.readOnlyDirectories);
 
     const conn = await withTimeout(
       this.connection.ensureReady(),
       Math.min(this.config.timeoutMs, 60_000),
       "ACP connection timed out",
     );
-    const session = await this.getOrCreateSession(request.conversationId, conn);
+    const session = await this.getOrCreateSession(
+      request.conversationId,
+      conn,
+      additionalDirectories,
+      readOnlyDirectories,
+    );
     const collector = new AcpResponseCollector({
       ...(request.onProgress ? { onProgress: request.onProgress } : {}),
       ...(request.responseMode ? { responseMode: request.responseMode } : {}),
@@ -120,7 +129,18 @@ export class AcpCodexBackend implements CodexBackend {
         stderr:
           response.stopReason === "end_turn"
             ? ""
-            : `ACP stop reason: ${response.stopReason}`,
+            : [
+                `ACP stop reason: ${response.stopReason}`,
+                ...(response.stopReason === "cancelled"
+                  ? [
+                      this.connection.consumeLastPermissionDecision(
+                        session.sessionId,
+                      ) ?? "",
+                    ]
+                  : []),
+              ]
+                .filter(Boolean)
+                .join("\n"),
         exitCode: response.stopReason === "end_turn" ? 0 : 1,
         timedOut: false,
       };
@@ -132,9 +152,15 @@ export class AcpCodexBackend implements CodexBackend {
   private async getOrCreateSession(
     conversationId: string,
     conn: Awaited<ReturnType<AcpConnection["ensureReady"]>>,
+    additionalDirectories: string[],
+    readOnlyDirectories: string[],
   ): Promise<AcpSessionHandle> {
     const existing = this.sessions.get(conversationId);
     if (existing) {
+      this.connection.setSessionPermissions(existing, {
+        additionalDirectories,
+        readOnlyDirectories,
+      });
       return {
         sessionId: existing,
         isFresh: false,
@@ -142,6 +168,11 @@ export class AcpCodexBackend implements CodexBackend {
     }
 
     const persisted = this.persistedSessions.get(conversationId);
+    const sessionAdditionalDirectories =
+      additionalDirectories.length > 0 &&
+      this.connection.supportsAdditionalDirectories()
+        ? additionalDirectories
+        : [];
     if (persisted && this.connection.supportsLoadSession()) {
       try {
         await withTimeout(
@@ -149,6 +180,9 @@ export class AcpCodexBackend implements CodexBackend {
             sessionId: persisted,
             cwd: this.config.workspace,
             mcpServers: [],
+            ...(sessionAdditionalDirectories.length > 0
+              ? { additionalDirectories: sessionAdditionalDirectories }
+              : {}),
           }),
           Math.min(this.config.timeoutMs, 60_000),
           "ACP loadSession timed out",
@@ -157,6 +191,10 @@ export class AcpCodexBackend implements CodexBackend {
           `[codex:acp] loaded persisted session ${persisted} for ${conversationId}`,
         );
         this.sessions.set(conversationId, persisted);
+        this.connection.setSessionPermissions(persisted, {
+          additionalDirectories,
+          readOnlyDirectories,
+        });
         return {
           sessionId: persisted,
           isFresh: false,
@@ -175,11 +213,18 @@ export class AcpCodexBackend implements CodexBackend {
       conn.newSession({
         cwd: this.config.workspace,
         mcpServers: [],
+        ...(sessionAdditionalDirectories.length > 0
+          ? { additionalDirectories: sessionAdditionalDirectories }
+          : {}),
       }),
       Math.min(this.config.timeoutMs, 60_000),
       "ACP newSession timed out",
     );
     this.sessions.set(conversationId, response.sessionId);
+    this.connection.setSessionPermissions(response.sessionId, {
+      additionalDirectories,
+      readOnlyDirectories,
+    });
     this.persistedSessions.set(conversationId, response.sessionId);
     this.savePersistedSessions();
     return {
@@ -192,6 +237,7 @@ export class AcpCodexBackend implements CodexBackend {
     const sessionId = this.sessions.get(conversationId);
     if (sessionId) {
       this.connection.unregisterCollector(sessionId);
+      this.connection.clearSessionPermissions(sessionId);
       this.sessions.delete(conversationId);
     }
     this.persistedSessions.delete(conversationId);
@@ -242,4 +288,19 @@ export class AcpCodexBackend implements CodexBackend {
       mode: 0o600,
     });
   }
+}
+
+function normalizeDirectories(paths: string[] | undefined): string[] {
+  if (!paths?.length) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      paths
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => path.resolve(item)),
+    ),
+  ];
 }

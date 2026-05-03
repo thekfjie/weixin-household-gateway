@@ -23,6 +23,35 @@ const ACP_AUTH_ENV_KEYS = [
 function describeToolCall(update) {
     return update.title ?? update.kind ?? update.toolCallId ?? "tool";
 }
+function formatToolCallDetails(params) {
+    const parts = [];
+    const title = describeToolCall(params.toolCall);
+    parts.push(title);
+    if (params.toolCall.kind) {
+        parts.push(`kind=${params.toolCall.kind}`);
+    }
+    const locations = params.toolCall.locations
+        ?.map((item) => item.path)
+        .filter((item) => Boolean(item))
+        .slice(0, 4) ?? [];
+    if (locations.length > 0) {
+        parts.push(`paths=${locations.join(",")}`);
+    }
+    if (params.toolCall.content?.length) {
+        const textSnippets = params.toolCall.content
+            .map((item) => item.type === "content" && item.content.type === "text"
+            ? item.content.text
+            : undefined)
+            .filter((item) => Boolean(item))
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .slice(0, 2);
+        if (textSnippets.length > 0) {
+            parts.push(`content=${textSnippets.join(" | ")}`);
+        }
+    }
+    return parts.join(" ");
+}
 function defaultHome() {
     const home = node_os_1.default.homedir();
     if (home && home !== ".") {
@@ -150,6 +179,133 @@ function requiredAuthEnvVars(methods) {
     }
     return [...names].sort();
 }
+function normalizePathList(paths) {
+    if (!paths?.length) {
+        return [];
+    }
+    return [
+        ...new Set(paths
+            .map((item) => item.trim())
+            .filter(Boolean)
+            .map((item) => node_path_1.default.resolve(item))),
+    ];
+}
+function isInsideDirectory(filePath, directory) {
+    const relative = node_path_1.default.relative(directory, filePath);
+    return (relative === "" ||
+        (!!relative && !relative.startsWith("..") && !node_path_1.default.isAbsolute(relative)));
+}
+function extractPathsFromRawInput(value) {
+    if (!value || typeof value !== "object") {
+        return [];
+    }
+    const result = [];
+    const pushIfPath = (candidate) => {
+        if (typeof candidate === "string" && candidate.trim()) {
+            const trimmed = candidate.trim();
+            if (node_path_1.default.isAbsolute(trimmed) || /^[A-Za-z]:[\\/]/.test(trimmed)) {
+                result.push(node_path_1.default.resolve(trimmed));
+            }
+        }
+    };
+    for (const [key, candidate] of Object.entries(value)) {
+        if (key === "path" ||
+            key === "cwd" ||
+            key.endsWith("Path") ||
+            key.endsWith("_path")) {
+            pushIfPath(candidate);
+            continue;
+        }
+        if ((key === "paths" || key.endsWith("Paths") || key.endsWith("_paths")) &&
+            Array.isArray(candidate)) {
+            for (const item of candidate) {
+                pushIfPath(item);
+            }
+        }
+    }
+    return [...new Set(result)];
+}
+function choosePermissionOption(options, preferredKinds) {
+    for (const option of options) {
+        if (preferredKinds.has(option.kind)) {
+            return option;
+        }
+    }
+    return options[0];
+}
+function decidePermission(config, context, params) {
+    const allowedRoots = normalizePathList([
+        config.workspace,
+        ...(context?.additionalDirectories ?? []),
+    ]);
+    const readOnlyRoots = normalizePathList(context?.readOnlyDirectories);
+    const touchedPaths = [
+        ...(params.toolCall.locations?.map((item) => item.path) ?? []),
+        ...extractPathsFromRawInput(params.toolCall.rawInput),
+    ]
+        .filter(Boolean)
+        .map((item) => node_path_1.default.resolve(item));
+    const kind = params.toolCall.kind ?? "other";
+    const describeRoots = allowedRoots.join(", ") || config.workspace;
+    const allowKinds = new Set(["allow_once", "allow_always"]);
+    const rejectKinds = new Set(["reject_once", "reject_always"]);
+    if (kind === "read") {
+        if (touchedPaths.length > 0 &&
+            touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)))) {
+            const option = choosePermissionOption(params.options, allowKinds);
+            if (option) {
+                return {
+                    allowed: true,
+                    reason: `allow read inside ${describeRoots}`,
+                    optionId: option.optionId,
+                };
+            }
+        }
+    }
+    if (kind === "edit" || kind === "move" || kind === "delete") {
+        if (touchedPaths.length > 0 &&
+            touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)) &&
+                !readOnlyRoots.some((root) => isInsideDirectory(item, root)))) {
+            const option = choosePermissionOption(params.options, allowKinds);
+            if (option) {
+                return {
+                    allowed: true,
+                    reason: `allow ${kind} inside writable session workspace`,
+                    optionId: option.optionId,
+                };
+            }
+        }
+    }
+    if (kind === "execute") {
+        const contentText = params.toolCall.content
+            ?.map((item) => item.type === "content" && item.content.type === "text"
+            ? item.content.text
+            : "")
+            .join("\n")
+            .toLowerCase() ?? "";
+        const looksLocalProcessing = /(unzip\b|python\b|python3\b|node\b|pandoc\b|ffmpeg\b|magick\b|convert\b|file\b|ls\b|cat\b|grep\b|rg\b|find\b|sed\b)/.test(contentText);
+        if (looksLocalProcessing &&
+            touchedPaths.length > 0 &&
+            touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)))) {
+            const option = choosePermissionOption(params.options, allowKinds);
+            if (option) {
+                return {
+                    allowed: true,
+                    reason: "allow local processing command inside controlled workspace",
+                    optionId: option.optionId,
+                };
+            }
+        }
+    }
+    const rejectOption = choosePermissionOption(params.options, rejectKinds);
+    return {
+        allowed: false,
+        reason: touchedPaths.length > 0
+            ? `blocked ${kind} outside controlled workspace`
+            : `blocked ${kind}; no safe path scope detected`,
+        ...(rejectOption ? { optionId: rejectOption.optionId } : {}),
+    };
+}
 class AcpConnection {
     config;
     onExit;
@@ -157,7 +313,10 @@ class AcpConnection {
     connection;
     ready = false;
     loadSessionSupported = false;
+    additionalDirectoriesSupported = false;
     collectors = new Map();
+    sessionPermissions = new Map();
+    lastPermissionDecisionBySession = new Map();
     constructor(config, onExit) {
         this.config = config;
         this.onExit = onExit;
@@ -167,6 +326,23 @@ class AcpConnection {
     }
     unregisterCollector(sessionId) {
         this.collectors.delete(sessionId);
+    }
+    setSessionPermissions(sessionId, context) {
+        this.sessionPermissions.set(sessionId, {
+            additionalDirectories: normalizePathList(context.additionalDirectories),
+            readOnlyDirectories: normalizePathList(context.readOnlyDirectories),
+        });
+    }
+    clearSessionPermissions(sessionId) {
+        this.sessionPermissions.delete(sessionId);
+        this.lastPermissionDecisionBySession.delete(sessionId);
+    }
+    consumeLastPermissionDecision(sessionId) {
+        const message = this.lastPermissionDecisionBySession.get(sessionId);
+        if (message) {
+            this.lastPermissionDecisionBySession.delete(sessionId);
+        }
+        return message;
     }
     async ensureReady() {
         if (this.ready && this.connection) {
@@ -198,9 +374,12 @@ class AcpConnection {
             cleanupSubprocessStdio(proc);
             this.ready = false;
             this.loadSessionSupported = false;
+            this.additionalDirectoriesSupported = false;
             this.connection = undefined;
             this.process = undefined;
             this.collectors.clear();
+            this.sessionPermissions.clear();
+            this.lastPermissionDecisionBySession.clear();
             this.onExit();
         });
         if (!proc.stdin || !proc.stdout) {
@@ -228,10 +407,24 @@ class AcpConnection {
                 this.collectors.get(params.sessionId)?.handleUpdate(params);
             },
             requestPermission: async (params) => {
-                console.warn(`[codex:acp] permission request denied: ${describeToolCall(params.toolCall)}`);
+                const decision = decidePermission(this.config, this.sessionPermissions.get(params.sessionId), params);
+                const detail = formatToolCallDetails(params);
+                this.lastPermissionDecisionBySession.set(params.sessionId, `${decision.reason}: ${detail}`);
+                if (decision.allowed && decision.optionId) {
+                    console.log(`[codex:acp] permission request allowed: ${decision.reason}: ${detail}`);
+                    return {
+                        outcome: {
+                            outcome: "selected",
+                            optionId: decision.optionId,
+                        },
+                    };
+                }
+                console.warn(`[codex:acp] permission request denied: ${decision.reason}: ${detail}`);
                 return {
                     outcome: {
-                        outcome: "cancelled",
+                        ...(decision.optionId
+                            ? { outcome: "selected", optionId: decision.optionId }
+                            : { outcome: "cancelled" }),
                     },
                 };
             },
@@ -250,8 +443,11 @@ class AcpConnection {
         const authMethods = initializeResponse.authMethods ?? [];
         this.loadSessionSupported =
             initializeResponse.agentCapabilities?.loadSession === true;
+        this.additionalDirectoriesSupported =
+            Boolean(initializeResponse.agentCapabilities?.sessionCapabilities
+                ?.additionalDirectories);
         console.log(`[codex:acp] auth methods: ${describeAuthMethods(authMethods, env)}`);
-        console.log(`[codex:acp] loadSession=${this.loadSessionSupported}`);
+        console.log(`[codex:acp] loadSession=${this.loadSessionSupported}, additionalDirectories=${this.additionalDirectoriesSupported}`);
         const authMethod = this.config.acpAuthMode === "none"
             ? undefined
             : selectAcpAuthMethod(authMethods, env);
@@ -276,7 +472,10 @@ class AcpConnection {
     dispose() {
         this.ready = false;
         this.loadSessionSupported = false;
+        this.additionalDirectoriesSupported = false;
         this.collectors.clear();
+        this.sessionPermissions.clear();
+        this.lastPermissionDecisionBySession.clear();
         this.connection = undefined;
         if (this.process) {
             const proc = this.process;
@@ -287,6 +486,9 @@ class AcpConnection {
     }
     supportsLoadSession() {
         return this.loadSessionSupported;
+    }
+    supportsAdditionalDirectories() {
+        return this.additionalDirectoriesSupported;
     }
 }
 exports.AcpConnection = AcpConnection;

@@ -12,6 +12,8 @@ export interface CodexBackendRequest {
   prompt: string;
   bootstrapPrompt?: string;
   role: UserRole;
+  additionalDirectories?: string[];
+  readOnlyDirectories?: string[];
   responseMode?: CodexResponseMode;
   onProgress?: (event: CodexProgressEvent) => void;
 }

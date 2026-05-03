@@ -1087,6 +1087,10 @@ function buildCodexIncrementalPrompt(params) {
         .join("\n");
 }
 async function buildCodexReply(params) {
+    const workspacePaths = buildSessionWorkspacePaths({
+        config: params.config,
+        sessionId: params.session.id,
+    });
     const prompt = params.persistentContext
         ? buildCodexIncrementalPrompt({
             config: params.config,
@@ -1116,6 +1120,8 @@ async function buildCodexReply(params) {
         prompt,
         ...(bootstrapPrompt ? { bootstrapPrompt } : {}),
         role: params.role,
+        additionalDirectories: Object.values(workspacePaths),
+        readOnlyDirectories: [workspacePaths.inboxDir],
         ...(params.responseMode ? { responseMode: params.responseMode } : {}),
         ...(params.onProgress ? { onProgress: params.onProgress } : {}),
     });
