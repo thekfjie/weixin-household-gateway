@@ -19,6 +19,7 @@ curl -fsSL https://raw.githubusercontent.com/thekfjie/weixin-household-agent-acp
 ```
 
 脚本会拉代码到 `/opt/weixin-household-gateway`，先检测系统环境；缺少 `git`、`sudo`、`Node.js 22 LTS` 等基础依赖时会询问是否补装。随后安装依赖、构建、写入 `.env` 和 systemd 服务。首次没有微信账号时会停在终端二维码，扫码确认后继续启动。
+`bootstrap.sh` 现在会在 `curl | bash` 场景下把后续交互切回 `/dev/tty`，避免安装器因为标准输入来自管道而卡住。
 
 默认是交互安装，不会一上来就一路自动跑完。  
 如果你明确想要无交互默认值安装，才显式加：

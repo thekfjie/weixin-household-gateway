@@ -107,4 +107,11 @@ if [[ "${APP_DIR_CREATED_BY_BOOTSTRAP}" -eq 1 ]]; then
   install_args+=(--app-dir-created)
 fi
 
-bash infra/scripts/linux/install.sh "${install_args[@]}"
+if [[ "${BOOTSTRAP_YES}" == "1" ]]; then
+  bash infra/scripts/linux/install.sh "${install_args[@]}"
+elif [[ -r /dev/tty ]]; then
+  bash infra/scripts/linux/install.sh "${install_args[@]}" </dev/tty
+else
+  echo "当前没有可用的交互终端；请改用 BOOTSTRAP_YES=1，或先把脚本下载到本地再执行。" >&2
+  exit 1
+fi
