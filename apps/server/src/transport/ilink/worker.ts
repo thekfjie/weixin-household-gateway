@@ -6,7 +6,13 @@ import {
   CodexReasoningEffort,
   UserRole,
 } from "../../config/types.js";
-import { ParsedCommand, parseBuiltInCommand } from "../../commands/index.js";
+import {
+  ParsedCommand,
+  parseBuiltInCommand,
+  parseNaturalFileRequest,
+  parseAssistantFileAction,
+  detectPreviousSessionReference,
+} from "../../commands/index.js";
 import {
   CodexBackend,
   CodexProgressEvent,
@@ -29,6 +35,20 @@ import {
   ensureActiveSession,
   formatBeijingTime,
   shouldRotateSession,
+  parseSessionMemory,
+  stringifySessionMemory,
+  estimateTextTokens,
+  isNewBeijingCalendarDay,
+  shouldRotateByThresholds,
+  buildDayChangeUserNotice,
+  buildCrossDayNotice,
+  summarizeRecentMessagesInline,
+  summarizeCarryoverContext,
+  buildDeterministicSessionSummary,
+} from "../../sessions/index.js";
+import type {
+  SessionMemoryState,
+  PendingInboundAttachment,
 } from "../../sessions/index.js";
 import {
   AppDatabase,
@@ -44,6 +64,14 @@ import {
   normalizeInboundWechatMessages,
   NormalizedInboundAttachment,
 } from "./inbound.js";
+import {
+  splitReplyText,
+  buildCodexErrorReply,
+  buildCommandErrorReply,
+  buildThinkingNoticeText,
+  formatBytes,
+} from "./reply.js";
+import { withTypingIndicator } from "./typing.js";
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,122 +85,8 @@ function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-interface SessionMemoryState {
-  routeMode?: UserRole;
-  turnCount?: number;
-  estimatedTokenCount?: number;
-  carryoverSummary?: string;
-  carryoverSourceSessionId?: string;
-  carryoverSourceLastActiveAt?: string;
-  pendingInboundAttachments?: PendingInboundAttachment[];
-}
 
-interface PendingInboundAttachment {
-  id: string;
-  kind: "image" | "file";
-  fileName: string;
-  receivedAt: string;
-  localPath?: string;
-  sizeBytes?: number;
-  md5?: string;
-  downloadStatus: "ready" | "failed";
-  errorMessage?: string;
-}
 
-function parseSessionMemory(memoryJson: string): SessionMemoryState {
-  try {
-    const parsed = JSON.parse(memoryJson) as Record<string, unknown>;
-    return {
-      ...(parsed.routeMode === "admin" || parsed.routeMode === "family"
-        ? { routeMode: parsed.routeMode }
-        : {}),
-      ...(typeof parsed.turnCount === "number" && parsed.turnCount >= 0
-        ? { turnCount: parsed.turnCount }
-        : {}),
-      ...(typeof parsed.estimatedTokenCount === "number" &&
-      parsed.estimatedTokenCount >= 0
-        ? { estimatedTokenCount: parsed.estimatedTokenCount }
-        : {}),
-      ...(typeof parsed.carryoverSummary === "string"
-        ? { carryoverSummary: parsed.carryoverSummary }
-        : {}),
-      ...(typeof parsed.carryoverSourceSessionId === "string"
-        ? { carryoverSourceSessionId: parsed.carryoverSourceSessionId }
-        : {}),
-      ...(typeof parsed.carryoverSourceLastActiveAt === "string"
-        ? { carryoverSourceLastActiveAt: parsed.carryoverSourceLastActiveAt }
-        : {}),
-      ...(Array.isArray(parsed.pendingInboundAttachments)
-        ? {
-            pendingInboundAttachments: parsed.pendingInboundAttachments
-              .map(parsePendingInboundAttachment)
-              .filter(
-                (item): item is PendingInboundAttachment => Boolean(item),
-              ),
-          }
-        : {}),
-    };
-  } catch {
-    return {};
-  }
-}
-
-function parsePendingInboundAttachment(
-  value: unknown,
-): PendingInboundAttachment | undefined {
-  if (!value || typeof value !== "object") {
-    return undefined;
-  }
-
-  const record = value as Record<string, unknown>;
-  const kind = record.kind === "image" || record.kind === "file"
-    ? record.kind
-    : undefined;
-  const downloadStatus =
-    record.downloadStatus === "ready" || record.downloadStatus === "failed"
-      ? record.downloadStatus
-      : undefined;
-  if (
-    typeof record.id !== "string" ||
-    !kind ||
-    typeof record.fileName !== "string" ||
-    typeof record.receivedAt !== "string" ||
-    !downloadStatus
-  ) {
-    return undefined;
-  }
-
-  return {
-    id: record.id,
-    kind,
-    fileName: record.fileName,
-    receivedAt: record.receivedAt,
-    ...(typeof record.localPath === "string"
-      ? { localPath: record.localPath }
-      : {}),
-    ...(typeof record.sizeBytes === "number"
-      ? { sizeBytes: record.sizeBytes }
-      : {}),
-    ...(typeof record.md5 === "string" ? { md5: record.md5 } : {}),
-    downloadStatus,
-    ...(typeof record.errorMessage === "string"
-      ? { errorMessage: record.errorMessage }
-      : {}),
-  };
-}
-
-function stringifySessionMemory(state: SessionMemoryState): string {
-  return JSON.stringify(state);
-}
-
-function estimateTextTokens(text: string): number {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return 0;
-  }
-
-  return Math.ceil(trimmed.length / 4);
-}
 
 function formatSessionSnapshot(params: {
   session: SessionRecord;
@@ -197,20 +111,6 @@ function formatSessionSnapshot(params: {
   return parts.join("\n");
 }
 
-function summarizeRecentMessagesInline(
-  messages: ReturnType<AppDatabase["listSessionMessages"]>,
-): string | undefined {
-  const recent = messages
-    .slice(-4)
-    .map((message) => {
-      const speaker = message.direction === "inbound" ? "用户" : "助手";
-      const text = message.textContent?.trim() || "[非文本消息]";
-      return `${speaker}：${text}`;
-    })
-    .filter(Boolean);
-
-  return recent.length > 0 ? recent.join(" / ") : undefined;
-}
 
 function findPreviousSession(params: {
   database: AppDatabase;
@@ -252,171 +152,6 @@ function findYesterdaySession(params: {
   });
 }
 
-function isNewBeijingCalendarDay(params: {
-  previousAt: string;
-  now: Date;
-}): boolean {
-  const previous = new Date(params.previousAt);
-  if (Number.isNaN(previous.getTime())) {
-    return false;
-  }
-
-  const previousDay = previous.toLocaleDateString("zh-CN", {
-    timeZone: "Asia/Shanghai",
-  });
-  const currentDay = params.now.toLocaleDateString("zh-CN", {
-    timeZone: "Asia/Shanghai",
-  });
-
-  return previousDay !== currentDay;
-}
-
-function summarizeCarryoverContext(params: {
-  session: SessionRecord;
-  recentMessages: ReturnType<AppDatabase["listSessionMessages"]>;
-}): string {
-  const lines: string[] = [];
-  if (params.session.summaryText.trim()) {
-    lines.push(`上段摘要：${params.session.summaryText.trim()}`);
-  }
-
-  const recent = params.recentMessages
-    .slice(-6)
-    .map((message) => {
-      const speaker = message.direction === "inbound" ? "用户" : "助手";
-      const text = message.textContent?.trim() || "[非文本消息]";
-      return `${speaker}：${text}`;
-    });
-
-  if (recent.length > 0) {
-    lines.push(`上段最近消息：${recent.join(" / ")}`);
-  }
-
-  return lines.join("\n").trim();
-}
-
-function buildDeterministicSessionSummary(params: {
-  session: SessionRecord;
-  recentMessages: ReturnType<AppDatabase["listSessionMessages"]>;
-}): string {
-  const parts: string[] = [];
-
-  const recentInline = summarizeRecentMessagesInline(params.recentMessages);
-  if (recentInline) {
-    parts.push(`最近对话：${recentInline}`);
-  }
-
-  const attachmentMentions = params.recentMessages
-    .filter((message) => message.filePath)
-    .slice(-3)
-    .map((message) => path.basename(message.filePath ?? ""))
-    .filter(Boolean);
-  if (attachmentMentions.length > 0) {
-    parts.push(`相关文件：${attachmentMentions.join("、")}`);
-  }
-
-  if (parts.length === 0) {
-    return "";
-  }
-
-  return parts.join("\n");
-}
-
-function shouldRotateByThresholds(params: {
-  session: SessionRecord;
-  memory: SessionMemoryState;
-  config: AppConfig;
-}): { shouldRotate: boolean; reason: string } {
-  const now = new Date();
-  if (
-    isNewBeijingCalendarDay({
-      previousAt: params.session.lastActiveAt,
-      now,
-    })
-  ) {
-    return {
-      shouldRotate: true,
-      reason: "crossed into a new Beijing calendar day",
-    };
-  }
-
-  const idleDecision = shouldRotateSession({
-    lastActiveAt: params.session.lastActiveAt,
-    now,
-    maxIdleHours: params.config.session.rotateIdleHours,
-  });
-  if (idleDecision.shouldRotate) {
-    return idleDecision;
-  }
-
-  const turnCount = params.memory.turnCount ?? 0;
-  if (turnCount >= params.config.session.rotateMaxTurns) {
-    return {
-      shouldRotate: true,
-      reason: `turn count ${turnCount} >= ${params.config.session.rotateMaxTurns}`,
-    };
-  }
-
-  const estimatedTokenCount = params.memory.estimatedTokenCount ?? 0;
-  if (estimatedTokenCount >= params.config.session.rotateMaxEstimatedTokens) {
-    return {
-      shouldRotate: true,
-      reason: `estimated tokens ${estimatedTokenCount} >= ${params.config.session.rotateMaxEstimatedTokens}`,
-    };
-  }
-
-  return {
-    shouldRotate: false,
-    reason: "session is still warm",
-  };
-}
-
-function buildCrossDayNotice(params: {
-  previousLastActiveAt: string;
-  now: Date;
-}): string | undefined {
-  const previous = new Date(params.previousLastActiveAt);
-  if (Number.isNaN(previous.getTime())) {
-    return undefined;
-  }
-
-  const previousDay = previous.toLocaleDateString("zh-CN", {
-    timeZone: "Asia/Shanghai",
-  });
-  const currentDay = params.now.toLocaleDateString("zh-CN", {
-    timeZone: "Asia/Shanghai",
-  });
-
-  if (previousDay === currentDay) {
-    return undefined;
-  }
-
-  return "前置信息：这条消息属于新的一天里的新对话；如当前语境需要，再自然参考上一段对话摘要，不要生硬提起。";
-}
-
-function detectPreviousSessionReference(
-  text: string,
-): "previous" | "yesterday" | undefined {
-  const normalized = text.replace(/\s+/g, "");
-
-  if (
-    /(昨天那个|昨天那次|昨天那份|昨天说的|昨天聊的|昨天做的|昨天发的|昨天提到的|前天那个|前天那次)/.test(
-      normalized,
-    )
-  ) {
-    return "yesterday";
-  }
-
-  if (
-    /(上一次|上回|上次|上一段|之前那个|前面的那个|之前那次|上个对话|刚才那个)/.test(
-      normalized,
-    )
-  ) {
-    return "previous";
-  }
-
-  return undefined;
-}
 
 function buildPreviousSessionHint(params: {
   database: AppDatabase;
@@ -470,24 +205,6 @@ function buildPreviousSessionHint(params: {
   return lines.join("\n");
 }
 
-function buildDayChangeUserNotice(params: {
-  session: SessionRecord;
-  role: UserRole;
-  now: Date;
-}): string | undefined {
-  if (
-    !isNewBeijingCalendarDay({
-      previousAt: params.session.lastActiveAt,
-      now: params.now,
-    })
-  ) {
-    return undefined;
-  }
-
-  return params.role === "family"
-    ? "昨天那段我先收起来了，我们接着聊；要回看上一段可以发 /last 或 /yesterday。"
-    : "已按新的一天开启新对话；如需回看上一段，可用 /last 或 /yesterday。";
-}
 
 function buildCommandReply(params: {
   command: ParsedCommand;
@@ -929,22 +646,6 @@ function listFilesForReply(directory: string, maxDepth: number): string[] {
   return files;
 }
 
-function formatBytes(value: number): string {
-  if (value < 1024) {
-    return `${value} B`;
-  }
-
-  const units = ["KB", "MB", "GB"];
-  let next = value / 1024;
-  for (const unit of units) {
-    if (next < 1024 || unit === units[units.length - 1]) {
-      return `${next.toFixed(next >= 10 ? 1 : 2)} ${unit}`;
-    }
-    next /= 1024;
-  }
-
-  return `${value} B`;
-}
 
 function sanitizeFileName(fileName: string): string {
   const sanitized = fileName
@@ -1108,117 +809,7 @@ function buildInboundAttachmentAckPlaceholders(
   }));
 }
 
-function extractQuotedText(text: string): string | undefined {
-  const match = text.match(/["'“”‘’]([^"'“”‘’]+)["'“”‘’]/);
-  return match?.[1]?.trim() || undefined;
-}
 
-function extractAbsolutePath(text: string): string | undefined {
-  const quoted = extractQuotedText(text);
-  if (quoted && (path.isAbsolute(quoted) || /^[A-Za-z]:[\\/]/.test(quoted))) {
-    return quoted;
-  }
-
-  const match = text.match(
-    /(?:^|\s)((?:\/[^\s"'“”‘’]+)+|[A-Za-z]:[\\/][^\s"'“”‘’]+)/,
-  );
-  return match?.[1]?.trim() || undefined;
-}
-
-function parseNaturalFileRequest(text: string): ParsedCommand | undefined {
-  const hasSendIntent = /(发|发送|传|传给|send)\s*/i.test(text);
-  if (!hasSendIntent) {
-    return undefined;
-  }
-
-  const filePath = extractAbsolutePath(text);
-  if (!filePath) {
-    return undefined;
-  }
-
-  const caption = text.replace(filePath, "").replace(/["'“”‘’]/g, "").trim();
-  return {
-    name: "/file",
-    raw: text,
-    args: caption ? [filePath, caption] : [filePath],
-  };
-}
-
-function parseAssistantFileAction(text: string):
-  | {
-      command: ParsedCommand;
-      cleanedText: string;
-    }
-  | undefined {
-  const match = text.match(
-    /\[\[send_file\s+path=(?:"([^"]+)"|'([^']+)'|([^\]\s]+))(?:\s+caption=(?:"([^"]*)"|'([^']*)'|([^\]]+)))?\s*\]\]/i,
-  );
-  if (!match) {
-    return undefined;
-  }
-
-  const filePath = (match[1] ?? match[2] ?? match[3] ?? "").trim();
-  const caption = (match[4] ?? match[5] ?? match[6] ?? "").trim();
-  if (!filePath) {
-    return undefined;
-  }
-
-  return {
-    command: {
-      name: "/file",
-      raw: match[0],
-      args: caption ? [filePath, caption] : [filePath],
-    },
-    cleanedText: text.replace(match[0], "").trim(),
-  };
-}
-
-function splitReplyText(text: string, maxChars: number): string[] {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return [];
-  }
-
-  if (maxChars <= 0 || trimmed.length <= maxChars) {
-    return [trimmed];
-  }
-
-  const chunks: string[] = [];
-  let remaining = trimmed;
-
-  while (remaining.length > maxChars) {
-    const window = remaining.slice(0, maxChars);
-    const cutAt = Math.max(
-      window.lastIndexOf("\n\n"),
-      window.lastIndexOf("\n"),
-      window.lastIndexOf("。"),
-      window.lastIndexOf("！"),
-      window.lastIndexOf("？"),
-      window.lastIndexOf(". "),
-      window.lastIndexOf(" "),
-    );
-    const end = cutAt > Math.floor(maxChars * 0.45) ? cutAt + 1 : maxChars;
-    chunks.push(remaining.slice(0, end).trim());
-    remaining = remaining.slice(end).trim();
-  }
-
-  if (remaining) {
-    chunks.push(remaining);
-  }
-
-  return chunks.filter(Boolean);
-}
-
-function buildCommandErrorReply(params: {
-  error: unknown;
-  role: UserRole;
-}): string {
-  const message = errorToRedactedMessage(params.error);
-
-  return params.role === "admin"
-    ? `命令执行失败：${message}`
-    : "这个命令暂时没有执行成功。";
-}
 
 async function handleFileCommand(params: {
   command: ParsedCommand;
@@ -1552,25 +1143,6 @@ async function buildCodexReply(params: {
   return result.text;
 }
 
-function buildCodexErrorReply(params: {
-  error: unknown;
-  role: UserRole;
-  codexCommand?: string;
-}): string {
-  const message = errorToRedactedMessage(params.error);
-  const codexCommand = params.codexCommand ?? "codex";
-
-  if (params.role === "admin") {
-    return [
-      "Codex 调用失败了。",
-      message,
-      `可以先在服务器上用同一个用户执行 \`${codexCommand} exec --skip-git-repo-check "你好"\` 验证登录和非交互执行是否正常。`,
-    ].join("\n");
-  }
-
-  return "我这边调用助手时出了一点问题，先稍等一下再试。";
-}
-
 async function handleAssistantFileActions(params: {
   rawReply: string;
   config: AppConfig;
@@ -1611,124 +1183,6 @@ async function handleAssistantFileActions(params: {
   });
 
   return [action.cleanedText, fileReply].filter(Boolean).join("\n");
-}
-
-async function withTypingIndicator<T>(params: {
-  client: ILinkApiClient;
-  toUserId: string;
-  contextToken: string;
-  typingRefreshMs: number;
-  thinkingNoticeIntervalMs: number;
-  shouldSendThinkingNotice?: () => boolean;
-  buildThinkingNoticeText: (elapsedSeconds: number) => string;
-  work: () => Promise<T>;
-}): Promise<T> {
-  let typingTicket = "";
-  let refreshing = false;
-  let refreshTimer: NodeJS.Timeout | undefined;
-  let thinkingTimer: NodeJS.Timeout | undefined;
-  let thinkingNoticeCount = 0;
-  let sendingThinkingNotice = false;
-
-  const sendTypingStatus = async (status: 1 | 2): Promise<void> => {
-    if (!typingTicket) {
-      return;
-    }
-
-    await params.client.sendTyping({
-      ilink_user_id: params.toUserId,
-      typing_ticket: typingTicket,
-      status,
-    });
-  };
-
-  try {
-    const config = await params.client.getConfig(
-      params.toUserId,
-      params.contextToken,
-    );
-    typingTicket = config.typing_ticket?.trim() ?? "";
-
-    if (typingTicket) {
-      await sendTypingStatus(1);
-      if (params.typingRefreshMs > 0) {
-        refreshTimer = setInterval(() => {
-          if (refreshing) {
-            return;
-          }
-
-          refreshing = true;
-          sendTypingStatus(1)
-            .catch((error) => {
-              console.warn("[worker] failed to refresh typing indicator", error);
-            })
-            .finally(() => {
-              refreshing = false;
-            });
-        }, params.typingRefreshMs);
-      }
-    }
-  } catch (error) {
-    console.warn("[worker] failed to start typing indicator", error);
-  }
-
-  if (params.thinkingNoticeIntervalMs > 0) {
-    thinkingTimer = setInterval(() => {
-      if (params.shouldSendThinkingNotice && !params.shouldSendThinkingNotice()) {
-        return;
-      }
-      if (sendingThinkingNotice) {
-        return;
-      }
-
-      thinkingNoticeCount += 1;
-      sendingThinkingNotice = true;
-      sendTextMessage({
-        client: params.client,
-        toUserId: params.toUserId,
-        contextToken: params.contextToken,
-        text: params.buildThinkingNoticeText(
-          Math.round(
-            (thinkingNoticeCount * params.thinkingNoticeIntervalMs) / 1000,
-          ),
-        ),
-      })
-        .catch((error) => {
-          console.warn("[worker] failed to send thinking notice", error);
-        })
-        .finally(() => {
-          sendingThinkingNotice = false;
-        });
-    }, params.thinkingNoticeIntervalMs);
-  }
-
-  try {
-    return await params.work();
-  } finally {
-    if (refreshTimer) {
-      clearInterval(refreshTimer);
-    }
-    if (thinkingTimer) {
-      clearInterval(thinkingTimer);
-    }
-
-    if (typingTicket) {
-      try {
-        await sendTypingStatus(2);
-      } catch (error) {
-        console.warn("[worker] failed to stop typing indicator", error);
-      }
-    }
-  }
-}
-
-function buildThinkingNoticeText(params: {
-  role: UserRole;
-  elapsedSeconds: number;
-}): string {
-  return params.role === "admin"
-    ? `我已思考 ${params.elapsedSeconds} 秒，还在处理，稍等一下。`
-    : `我已经想了 ${params.elapsedSeconds} 秒，还在处理，稍等我一下哦。`;
 }
 
 export interface WechatWorkerOptions {

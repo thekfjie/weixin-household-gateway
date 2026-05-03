@@ -13,7 +13,7 @@ import {
   type AuthMethod,
   type AuthMethodEnvVar,
 } from "@agentclientprotocol/sdk";
-import { CodexRuntimeConfig } from "../config/types.js";
+import { CodexRuntimeConfig, UserRole } from "../config/types.js";
 import { buildChildEnv } from "./run-codex.js";
 import { AcpResponseCollector } from "./acp-response-collector.js";
 
@@ -25,6 +25,7 @@ const ACP_AUTH_ENV_KEYS = [
 ] as const;
 
 interface SessionPermissionContext {
+  role: UserRole;
   additionalDirectories: string[];
   readOnlyDirectories: string[];
 }
@@ -346,10 +347,14 @@ function extractToolCallText(params: RequestPermissionRequest): string {
   );
 }
 
-function isBlockedExecuteText(text: string): boolean {
-  return /\b(curl|wget|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|apt|apt-get|yum|dnf|brew|systemctl|service|mount|umount|docker|kubectl)\b/.test(
-    text,
-  );
+const FAMILY_BLOCKED_COMMANDS =
+  /\b(curl|wget|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|apt|apt-get|yum|dnf|brew|systemctl|service|mount|umount|docker|kubectl|rm|dd|mkfs|fdisk|iptables|reboot|shutdown|halt|poweroff)\b/;
+
+function isBlockedExecuteText(text: string, role: UserRole): boolean {
+  if (role === "admin") {
+    return false;
+  }
+  return FAMILY_BLOCKED_COMMANDS.test(text);
 }
 
 function choosePermissionOption(
@@ -370,6 +375,7 @@ function decidePermission(
   context: SessionPermissionContext | undefined,
   params: RequestPermissionRequest,
 ): PermissionDecision {
+  const role = context?.role ?? "family";
   const allowedRoots = normalizePathList([
     config.workspace,
     ...(context?.additionalDirectories ?? []),
@@ -387,6 +393,20 @@ function decidePermission(
 
   const allowKinds = new Set<string>(["allow_once", "allow_always"]);
   const rejectKinds = new Set<string>(["reject_once", "reject_always"]);
+
+  // admin 对所有操作放行（full-auto 模式的设计意图）
+  if (role === "admin") {
+    const option = choosePermissionOption(params.options, allowKinds);
+    if (option) {
+      return {
+        allowed: true,
+        reason: `allow admin ${kind} (unrestricted)`,
+        optionId: option.optionId,
+      };
+    }
+  }
+
+  // 以下仅对 family 角色生效
 
   if (kind === "read") {
     if (
@@ -429,7 +449,7 @@ function decidePermission(
     if (
       touchedPaths.length > 0 &&
       touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root))) &&
-      !isBlockedExecuteText(contentText)
+      !isBlockedExecuteText(contentText, role)
     ) {
       const option = choosePermissionOption(params.options, allowKinds);
       if (option) {
@@ -488,6 +508,7 @@ export class AcpConnection {
     context: SessionPermissionContext,
   ): void {
     this.sessionPermissions.set(sessionId, {
+      role: context.role,
       additionalDirectories: normalizePathList(context.additionalDirectories),
       readOnlyDirectories: normalizePathList(context.readOnlyDirectories),
     });

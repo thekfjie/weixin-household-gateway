@@ -3,4 +3,6 @@ export * from "./inbound.js";
 export * from "./media.js";
 export * from "./protocol.js";
 export * from "./qr-login.js";
+export * from "./reply.js";
+export * from "./typing.js";
 export * from "./worker.js";

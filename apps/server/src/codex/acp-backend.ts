@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { ContentBlock, SessionId } from "@agentclientprotocol/sdk";
-import { CodexRuntimeConfig } from "../config/types.js";
+import { CodexRuntimeConfig, UserRole } from "../config/types.js";
 import { AcpConnection } from "./acp-connection.js";
 import { AcpResponseCollector } from "./acp-response-collector.js";
 import { CodexBackend, CodexBackendRequest } from "./backend-types.js";
@@ -93,6 +93,7 @@ export class AcpCodexBackend implements CodexBackend {
     const session = await this.getOrCreateSession(
       request.conversationId,
       conn,
+      request.role,
       additionalDirectories,
       readOnlyDirectories,
     );
@@ -152,12 +153,14 @@ export class AcpCodexBackend implements CodexBackend {
   private async getOrCreateSession(
     conversationId: string,
     conn: Awaited<ReturnType<AcpConnection["ensureReady"]>>,
+    role: UserRole,
     additionalDirectories: string[],
     readOnlyDirectories: string[],
   ): Promise<AcpSessionHandle> {
     const existing = this.sessions.get(conversationId);
     if (existing) {
       this.connection.setSessionPermissions(existing, {
+        role,
         additionalDirectories,
         readOnlyDirectories,
       });
@@ -192,6 +195,7 @@ export class AcpCodexBackend implements CodexBackend {
         );
         this.sessions.set(conversationId, persisted);
         this.connection.setSessionPermissions(persisted, {
+          role,
           additionalDirectories,
           readOnlyDirectories,
         });
@@ -222,6 +226,7 @@ export class AcpCodexBackend implements CodexBackend {
     );
     this.sessions.set(conversationId, response.sessionId);
     this.connection.setSessionPermissions(response.sessionId, {
+      role,
       additionalDirectories,
       readOnlyDirectories,
     });
