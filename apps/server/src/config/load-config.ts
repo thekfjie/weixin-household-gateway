@@ -330,7 +330,7 @@ export function loadConfig(): AppConfig {
         "weixin-household-gateway-0.1.0",
       ),
       ...(routeTag ? { routeTag } : {}),
-      typingRefreshMs: readNonNegativeInteger("WECHAT_TYPING_REFRESH_MS", 7_000),
+      typingRefreshMs: readNonNegativeInteger("WECHAT_TYPING_REFRESH_MS", 6_000),
       thinkingNoticeMs: readNonNegativeInteger(
         "WECHAT_THINKING_NOTICE_MS",
         30_000,

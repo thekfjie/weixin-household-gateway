@@ -839,7 +839,10 @@ async function buildCodexReply(params) {
         throw new Error("Codex timed out");
     }
     if (result.exitCode !== 0) {
-        const detail = result.stderr || result.text || `exit code ${result.exitCode}`;
+        const detail = [result.stderr, result.text, `exit code ${result.exitCode}`]
+            .filter(Boolean)
+            .join("\n")
+            .trim();
         throw new Error(`Codex failed: ${detail}`);
     }
     if (!result.text.trim()) {

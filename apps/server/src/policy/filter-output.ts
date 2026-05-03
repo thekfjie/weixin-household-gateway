@@ -23,18 +23,22 @@ export function filterFamilyOutput(
   text: string,
   policy: FamilyPolicyConfig,
 ): string {
+  const keepPermissionDiagnostics =
+    /blocked execute outside controlled workspace|blocked (?:read|write|edit|move|delete) outside controlled workspace|no safe path scope detected|usage_limit_exceeded|usage limit|OPENAI_API_KEY|CODEX_API_KEY|authenticate/i.test(
+      text,
+    );
   let next = text.trim();
 
   if (policy.stripReasoning) {
     next = stripReasoningLikeText(next);
   }
 
-  if (policy.stripCommands) {
+  if (policy.stripCommands && !keepPermissionDiagnostics) {
     next = stripShellCommands(next);
     next = stripCodeFences(next);
   }
 
-  if (policy.stripPaths) {
+  if (policy.stripPaths && !keepPermissionDiagnostics) {
     next = stripPathLikeText(next);
   }
 

@@ -1149,7 +1149,10 @@ async function buildCodexReply(params: {
   }
 
   if (result.exitCode !== 0) {
-    const detail = result.stderr || result.text || `exit code ${result.exitCode}`;
+    const detail = [result.stderr, result.text, `exit code ${result.exitCode}`]
+      .filter(Boolean)
+      .join("\n")
+      .trim();
     throw new Error(`Codex failed: ${detail}`);
   }
 

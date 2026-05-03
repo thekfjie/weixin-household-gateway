@@ -446,9 +446,12 @@ function decidePermission(
 
   if (kind === "execute") {
     const contentText = extractToolCallText(params).toLowerCase();
-    if (
+    const touchesOnlyAllowedRoots =
       touchedPaths.length > 0 &&
-      touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root))) &&
+      touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)));
+
+    if (
+      touchesOnlyAllowedRoots &&
       !isBlockedExecuteText(contentText, role)
     ) {
       const option = choosePermissionOption(params.options, allowKinds);
@@ -456,6 +459,21 @@ function decidePermission(
         return {
           allowed: true,
           reason: "allow execute inside controlled workspace",
+          optionId: option.optionId,
+        };
+      }
+    }
+
+    if (
+      role === "family" &&
+      touchedPaths.length === 0 &&
+      !isBlockedExecuteText(contentText, role)
+    ) {
+      const option = choosePermissionOption(params.options, allowKinds);
+      if (option) {
+        return {
+          allowed: true,
+          reason: "allow execute without explicit path scope inside family workspace flow",
           optionId: option.optionId,
         };
       }
