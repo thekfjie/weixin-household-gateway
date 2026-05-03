@@ -49,6 +49,30 @@ SUDOERS_CREATED_BY_INSTALLER=0
 SERVICE_FILE_BACKUP=""
 SUDOERS_FILE_BACKUP=""
 
+service_user_home() {
+  if [[ "${USER_MODE}" == "current" ]]; then
+    printf '%s\n' "${HOME}"
+    return
+  fi
+
+  local home_dir
+  home_dir="$(getent passwd "${SERVICE_USER}" | cut -d: -f6)"
+  if [[ -n "${home_dir}" ]]; then
+    printf '%s\n' "${home_dir}"
+    return
+  fi
+
+  printf '%s\n' "/home/${SERVICE_USER}"
+}
+
+service_user_pnpm_home() {
+  printf '%s\n' "$(service_user_home)/.local/share/pnpm"
+}
+
+service_user_corepack_home() {
+  printf '%s\n' "$(service_user_home)/.cache/node/corepack"
+}
+
 cleanup() {
   if [[ -n "${TMP_ENV_FILE}" && -f "${TMP_ENV_FILE}" ]]; then
     rm -f "${TMP_ENV_FILE}"
@@ -310,15 +334,32 @@ ensure_codex_cli() {
   managed_codex="$(resolve_codex_command)"
 
   echo "未检测到可用的 Codex CLI。"
-  if ! prompt_yes_no "是否现在用 pnpm 安装受管的 @openai/codex 到 ${APP_DIR}/.pnpm-home？" "y"; then
+  if ! prompt_yes_no "是否现在用 pnpm 为服务用户安装受管的 @openai/codex 到 $(service_user_pnpm_home)？" "y"; then
     echo "缺少 codex。请先安装 Codex CLI 后再继续。" >&2
     exit 1
   fi
 
-  pushd "${APP_DIR}" >/dev/null
-  prepare_package_manager
-  run_pnpm add -g @openai/codex
-  popd >/dev/null
+  local user_home
+  local user_pnpm_home
+  local user_corepack_home
+  user_home="$(service_user_home)"
+  user_pnpm_home="$(service_user_pnpm_home)"
+  user_corepack_home="$(service_user_corepack_home)"
+
+  if [[ "${SERVICE_USER}" == "$(id -un)" ]]; then
+    HOME="${user_home}" \
+    COREPACK_HOME="${user_corepack_home}" \
+    PNPM_HOME="${user_pnpm_home}" \
+    PATH="${user_pnpm_home}:${PATH}" \
+    bash -lc "cd \"${APP_DIR}\" && corepack enable >/dev/null 2>&1 || true; corepack prepare \"pnpm@${PNPM_VERSION}\" --activate >/dev/null 2>&1 || true; pnpm add -g @openai/codex"
+  else
+    sudo -u "${SERVICE_USER}" -H env \
+      HOME="${user_home}" \
+      COREPACK_HOME="${user_corepack_home}" \
+      PNPM_HOME="${user_pnpm_home}" \
+      PATH="${user_pnpm_home}:${PATH}" \
+      bash -lc "cd \"${APP_DIR}\" && corepack enable >/dev/null 2>&1 || true; corepack prepare \"pnpm@${PNPM_VERSION}\" --activate >/dev/null 2>&1 || true; pnpm add -g @openai/codex"
+  fi
 
   if [[ ! -x "${managed_codex}" ]]; then
     echo "安装后仍未找到受管的 codex 命令：${managed_codex}" >&2
@@ -442,7 +483,7 @@ require_node_version() {
 }
 
 resolve_codex_command() {
-  printf '%s\n' "${APP_DIR}/.pnpm-home/codex"
+  printf '%s\n' "$(service_user_pnpm_home)/codex"
 }
 
 command_is_available() {
@@ -529,8 +570,8 @@ validate_app_dir_target() {
 }
 
 prepare_package_manager() {
-  export COREPACK_HOME="${COREPACK_HOME:-${APP_DIR}/.corepack}"
-  export PNPM_HOME="${PNPM_HOME:-${APP_DIR}/.pnpm-home}"
+  export COREPACK_HOME="${COREPACK_HOME:-$(service_user_corepack_home)}"
+  export PNPM_HOME="${PNPM_HOME:-$(service_user_pnpm_home)}"
   export PATH="${PNPM_HOME}:${PATH}"
 
   mkdir -p "${COREPACK_HOME}" "${PNPM_HOME}"
@@ -651,6 +692,7 @@ ensure_service_user() {
   if [[ "${USER_MODE}" == "current" ]]; then
     SERVICE_USER="$(id -un)"
     SERVICE_GROUP="$(id -gn)"
+    mkdir -p "$(service_user_pnpm_home)" "$(service_user_corepack_home)"
     return
   fi
 
@@ -667,6 +709,8 @@ ensure_service_user() {
     sudo useradd -m -s /bin/bash -g "${SERVICE_GROUP}" "${SERVICE_USER}"
     SERVICE_USER_CREATED_BY_INSTALLER=1
   fi
+
+  sudo -u "${SERVICE_USER}" -H mkdir -p "$(service_user_pnpm_home)" "$(service_user_corepack_home)"
 }
 
 prepare_system_backups() {
@@ -854,11 +898,39 @@ build_project() {
   pushd "${APP_DIR}" >/dev/null
   prepare_package_manager
 
-  if ! CI=1 run_pnpm install --frozen-lockfile; then
-    CI=1 run_pnpm install
-  fi
+  if [[ "${SERVICE_USER}" == "$(id -un)" ]]; then
+    if ! CI=1 run_pnpm install --frozen-lockfile; then
+      CI=1 run_pnpm install
+    fi
+    run_pnpm build
+  else
+    local user_home
+    local user_pnpm_home
+    local user_corepack_home
+    user_home="$(service_user_home)"
+    user_pnpm_home="$(service_user_pnpm_home)"
+    user_corepack_home="$(service_user_corepack_home)"
 
-  run_pnpm build
+    if ! sudo -u "${SERVICE_USER}" -H env \
+      HOME="${user_home}" \
+      COREPACK_HOME="${user_corepack_home}" \
+      PNPM_HOME="${user_pnpm_home}" \
+      PATH="${user_pnpm_home}:${PATH}" \
+      bash -lc "cd \"${APP_DIR}\" && CI=1 pnpm install --frozen-lockfile"; then
+      sudo -u "${SERVICE_USER}" -H env \
+        HOME="${user_home}" \
+        COREPACK_HOME="${user_corepack_home}" \
+        PNPM_HOME="${user_pnpm_home}" \
+        PATH="${user_pnpm_home}:${PATH}" \
+        bash -lc "cd \"${APP_DIR}\" && CI=1 pnpm install"
+    fi
+    sudo -u "${SERVICE_USER}" -H env \
+      HOME="${user_home}" \
+      COREPACK_HOME="${user_corepack_home}" \
+      PNPM_HOME="${user_pnpm_home}" \
+      PATH="${user_pnpm_home}:${PATH}" \
+      bash -lc "cd \"${APP_DIR}\" && pnpm build"
+  fi
   popd >/dev/null
 }
 

@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/thekfjie/weixin-household-agent-acp
 1. 拉取代码到 `/opt/weixin-household-gateway`
 2. 创建数据目录 `/var/lib/weixin-household-gateway`
 3. 安装依赖并构建
-4. 安装受管的 `codex` CLI 到 `/opt/weixin-household-gateway/.pnpm-home/codex`
+4. 为服务用户安装受管的 `codex` CLI 到用户自己的 `PNPM_HOME`
 5. 写入 `.env` 和 systemd 服务
 6. 首次扫码绑定微信账号
 7. 启动服务并运行自检
@@ -64,15 +64,15 @@ bash
 如果你不用中转站，也可以走登录模式：
 
 ```bash
-/opt/weixin-household-gateway/.pnpm-home/codex login
-/opt/weixin-household-gateway/.pnpm-home/codex exec --skip-git-repo-check "请用一句话回复：Codex 已接通"
+/home/ubuntu/.local/share/pnpm/codex login
+/home/ubuntu/.local/share/pnpm/codex exec --skip-git-repo-check "请用一句话回复：Codex 已接通"
 cd /opt/weixin-household-gateway
 node dist/apps/server/doctor.js --acp-session
 ```
 
 说明：
 
-- 现在安装器默认把 `codex` 装到应用目录自己的 `.pnpm-home`，不依赖系统全局安装。
+- 现在安装器默认把 `codex` 装到服务用户自己的 `PNPM_HOME`，不放进项目目录，也不依赖跨用户全局 wrapper。
 - 如果配置了 `CODEX_CLI_BASE_URL`，生成的 Codex 配置会按“兼容 API”处理，不再强制表现成官方 OpenAI 登录流。
 - 服务默认走 `ACP` 后端，不是单次 `codex exec`。
 
@@ -126,11 +126,13 @@ bash /opt/weixin-household-gateway/infra/scripts/linux/uninstall.sh --yes
 ## 目录约定
 
 ```text
-/opt/weixin-household-gateway              项目代码、dist、node_modules、.pnpm-home
+/opt/weixin-household-gateway              项目代码、dist、node_modules
 /var/lib/weixin-household-gateway          SQLite、账号、会话、附件
 /var/lib/weixin-household-gateway/inbox    用户发来的文件
 /var/lib/weixin-household-gateway/office   文档处理中间文件
 /var/lib/weixin-household-gateway/outbox   准备发回微信的文件
+/home/ubuntu/.local/share/pnpm             服务用户自己的 pnpm / codex 命令
+/home/ubuntu/.codex                        服务用户自己的 Codex 配置和认证
 ```
 
 ## 更多文档
