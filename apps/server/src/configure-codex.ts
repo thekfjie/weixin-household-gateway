@@ -112,9 +112,13 @@ function tomlString(value: string): string {
 }
 
 function buildConfigToml(env: DotEnv): string {
-  const provider = readValue(env, "CODEX_CLI_PROVIDER", "OpenAI");
-  const providerName = readValue(env, "CODEX_CLI_PROVIDER_NAME", provider);
   const baseUrl = readValue(env, "CODEX_CLI_BASE_URL");
+  const provider = readValue(
+    env,
+    "CODEX_CLI_PROVIDER",
+    baseUrl ? "compat" : "OpenAI",
+  );
+  const providerName = readValue(env, "CODEX_CLI_PROVIDER_NAME", provider);
   const wireApi = readValue(env, "CODEX_CLI_WIRE_API", "responses");
   const model = readValue(env, "CODEX_CLI_MODEL", "gpt-5.4");
   const reviewModel = readValue(env, "CODEX_CLI_REVIEW_MODEL", model);
@@ -151,7 +155,7 @@ function buildConfigToml(env: DotEnv): string {
     `name = ${tomlString(providerName)}`,
     ...(baseUrl ? [`base_url = ${tomlString(baseUrl)}`] : []),
     `wire_api = ${tomlString(wireApi)}`,
-    "requires_openai_auth = true",
+    `requires_openai_auth = ${baseUrl ? "false" : "true"}`,
     "",
   ].join("\n");
 }
@@ -196,6 +200,7 @@ function run(): void {
   const env = loadDotEnv();
   const authMode = readAuthMode(env);
   const apiKey = readValue(env, "CODEX_CLI_API_KEY");
+  const codexCommand = readValue(env, "CODEX_ADMIN_COMMAND", "codex");
   const codexHome = path.resolve(
     readValue(env, "CODEX_CLI_HOME", process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex")),
   );
@@ -237,7 +242,7 @@ function run(): void {
 
   console.log("");
   console.log("Codex CLI 配置已写入。下一步可运行：");
-  console.log('codex exec --skip-git-repo-check "请用一句话回复：Codex 已接通"');
+  console.log(`${codexCommand} exec --skip-git-repo-check "请用一句话回复：Codex 已接通"`);
 }
 
 try {

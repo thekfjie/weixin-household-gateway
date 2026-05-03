@@ -135,6 +135,11 @@ prompt_required() {
   local allow_empty_choice_label="${3:-}"
   local input
 
+  if [[ "${YES}" -eq 1 ]]; then
+    printf '%s\n' "${current_value}"
+    return
+  fi
+
   while true; do
     if [[ -n "${current_value}" ]]; then
       read -r -p "${label} [${current_value}]: " input
@@ -297,25 +302,26 @@ ensure_node_runtime() {
 }
 
 ensure_codex_cli() {
-  if command -v codex >/dev/null 2>&1; then
+  if command_is_available "${ADMIN_COMMAND}" && command_is_available "${FAMILY_COMMAND}"; then
     return
   fi
 
-  echo "未检测到 codex 命令。"
-  if ! prompt_yes_no "是否现在用 npm 全局安装 @openai/codex？" "y"; then
+  local managed_codex
+  managed_codex="$(resolve_codex_command)"
+
+  echo "未检测到可用的 Codex CLI。"
+  if ! prompt_yes_no "是否现在用 pnpm 安装受管的 @openai/codex 到 ${APP_DIR}/.pnpm-home？" "y"; then
     echo "缺少 codex。请先安装 Codex CLI 后再继续。" >&2
     exit 1
   fi
 
-  if ! command -v npm >/dev/null 2>&1; then
-    echo "未检测到 npm，无法安装 @openai/codex。" >&2
-    exit 1
-  fi
+  pushd "${APP_DIR}" >/dev/null
+  prepare_package_manager
+  run_pnpm add -g @openai/codex
+  popd >/dev/null
 
-  sudo npm install -g @openai/codex
-
-  if ! command -v codex >/dev/null 2>&1; then
-    echo "安装后仍未找到 codex 命令。" >&2
+  if [[ ! -x "${managed_codex}" ]]; then
+    echo "安装后仍未找到受管的 codex 命令：${managed_codex}" >&2
     exit 1
   fi
 }
@@ -436,7 +442,22 @@ require_node_version() {
 }
 
 resolve_codex_command() {
-  command -v codex 2>/dev/null || printf '%s\n' "codex"
+  printf '%s\n' "${APP_DIR}/.pnpm-home/codex"
+}
+
+command_is_available() {
+  local command_name="$1"
+
+  if [[ -z "${command_name}" ]]; then
+    return 1
+  fi
+
+  if [[ "${command_name}" == */* ]]; then
+    [[ -x "${command_name}" ]]
+    return
+  fi
+
+  command -v "${command_name}" >/dev/null 2>&1
 }
 
 state_app_file() {
@@ -552,6 +573,9 @@ configure_interactively() {
   validate_choice "${CODEX_CLI_AUTH_MODE}" api_key login
 
   if [[ "${CODEX_CLI_AUTH_MODE}" == "api_key" ]]; then
+    if [[ "${YES}" -eq 1 && ( -z "${CODEX_CLI_BASE_URL}" || -z "${CODEX_CLI_API_KEY}" ) ]]; then
+      CODEX_CLI_AUTH_MODE="login"
+    else
     CODEX_CLI_BASE_URL="$(
       prompt_required \
         "第三方兼容 API Base URL" \
@@ -570,6 +594,7 @@ configure_interactively() {
       if [[ -z "${CODEX_CLI_API_KEY}" ]]; then
         CODEX_CLI_AUTH_MODE="login"
       fi
+    fi
     fi
   fi
   CODEX_CLI_MODEL="$(prompt_default "Codex 对话模型" "${CODEX_CLI_MODEL}")"
@@ -670,6 +695,11 @@ write_env_file() {
   local target_file="$1"
   local admin_workspace="${DATA_DIR}/runtime/admin"
   local family_workspace="${DATA_DIR}/runtime/family"
+  local codex_provider="OpenAI"
+
+  if [[ -n "${CODEX_CLI_BASE_URL}" ]]; then
+    codex_provider="compat"
+  fi
 
   cat > "${target_file}" <<EOF
 PORT=${PORT}
@@ -712,8 +742,8 @@ CODEX_TIMEOUT_MS=180000
 
 CODEX_CLI_AUTH_MODE=${CODEX_CLI_AUTH_MODE}
 CODEX_CLI_HOME=
-CODEX_CLI_PROVIDER=OpenAI
-CODEX_CLI_PROVIDER_NAME=OpenAI
+CODEX_CLI_PROVIDER=${codex_provider}
+CODEX_CLI_PROVIDER_NAME=${codex_provider}
 CODEX_CLI_BASE_URL=${CODEX_CLI_BASE_URL}
 CODEX_CLI_API_KEY=${CODEX_CLI_API_KEY}
 CODEX_CLI_WIRE_API=responses
@@ -835,6 +865,12 @@ build_project() {
 run_node_as_service_user() {
   local script_path="$1"
   shift
+  local codex_provider="OpenAI"
+
+  if [[ -n "${CODEX_CLI_BASE_URL}" ]]; then
+    codex_provider="compat"
+  fi
+
   local env_args=(
     "PORT=${PORT}"
     "TIMEZONE=${TIMEZONE}"
@@ -870,8 +906,8 @@ run_node_as_service_user() {
     "CODEX_TIMEOUT_MS=180000"
     "CODEX_CLI_AUTH_MODE=${CODEX_CLI_AUTH_MODE}"
     "CODEX_CLI_HOME="
-    "CODEX_CLI_PROVIDER=OpenAI"
-    "CODEX_CLI_PROVIDER_NAME=OpenAI"
+    "CODEX_CLI_PROVIDER=${codex_provider}"
+    "CODEX_CLI_PROVIDER_NAME=${codex_provider}"
     "CODEX_CLI_BASE_URL=${CODEX_CLI_BASE_URL}"
     "CODEX_CLI_API_KEY=${CODEX_CLI_API_KEY}"
     "CODEX_CLI_WIRE_API=responses"
@@ -951,6 +987,10 @@ run_login_if_needed() {
 start_service() {
   sudo chown -R "${SERVICE_USER}:${SERVICE_GROUP}" "${DATA_DIR}"
   sudo chmod -R a+rX "${APP_DIR}"
+  # Keep the shared app tree readable, but don't reopen the secret env file.
+  if [[ -f "${APP_DIR}/.env" ]]; then
+    sudo chmod 640 "${APP_DIR}/.env"
+  fi
 
   sudo systemctl daemon-reload
   sudo systemctl enable "${SERVICE_NAME}"
@@ -1026,17 +1066,21 @@ print_permission_summary() {
 }
 
 print_codex_setup_help() {
+  local codex_command
+  codex_command="$(resolve_codex_command)"
   echo ""
   echo "还需要为服务用户准备 Codex CLI 和认证："
-  echo "  1. 确保当前服务用户能直接运行 codex"
+  echo "  1. 确保当前服务用户能直接运行 ${codex_command}"
   echo "  2. 推荐在 .env 中配置第三方 API key，再运行：node dist/apps/server/configure-codex.js --apply"
-  echo "  3. 可选：如果不用 API key，也可以用这个真实用户执行：codex login"
-  echo "  4. 再执行：codex exec --skip-git-repo-check \"请用一句话回复：Codex 已接通\""
+  echo "  3. 可选：如果不用 API key，也可以用这个真实用户执行：${codex_command} login"
+  echo "  4. 再执行：${codex_command} exec --skip-git-repo-check \"请用一句话回复：Codex 已接通\""
   echo "  5. 最后运行：node dist/apps/server/doctor.js --acp-session"
 }
 
 configure_codex_cli() {
   pushd "${APP_DIR}" >/dev/null
+  local codex_command
+  codex_command="$(resolve_codex_command)"
   if [[ "${CODEX_CLI_AUTH_MODE}" == "api_key" ]]; then
     if [[ -z "${CODEX_CLI_BASE_URL}" || -z "${CODEX_CLI_API_KEY}" ]]; then
       echo "api_key 模式缺少完整的 CODEX_CLI_BASE_URL / CODEX_CLI_API_KEY，自动切回 login 模式。"
@@ -1049,7 +1093,7 @@ configure_codex_cli() {
   else
     echo ""
     echo "当前选择 login 模式。请在服务用户环境里执行："
-    echo "  codex login"
+    echo "  ${codex_command} login"
     echo "然后再继续使用 doctor 校验 ACP 链路。"
   fi
   popd >/dev/null
@@ -1086,7 +1130,6 @@ main() {
   ensure_command_with_prompt sudo "${package_manager}" sudo
   ensure_command_with_prompt git "${package_manager}" git
   require_node_version
-  ensure_codex_cli
 
   configure_interactively
   capture_preinstall_state
@@ -1120,6 +1163,7 @@ main() {
   prepare_system_backups
   install_env_and_service
   build_project
+  ensure_codex_cli
   configure_codex_cli
   run_login_if_needed
   start_service
