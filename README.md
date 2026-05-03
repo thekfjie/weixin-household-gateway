@@ -93,8 +93,9 @@ ln -s /var/lib/weixin-household-gateway data-live
 CODEX_CLI_AUTH_MODE=api_key
 CODEX_CLI_BASE_URL=https://你的第三方兼容服务/v1
 CODEX_CLI_API_KEY=sk-...
-CODEX_CLI_MODEL=gpt-5.4
-CODEX_CLI_REVIEW_MODEL=gpt-5.4
+CODEX_CLI_MODEL=gpt-5.5
+CODEX_CLI_REVIEW_MODEL=gpt-5.5
+CODEX_CLI_REASONING_EFFORT=high
 CODEX_ADMIN_BACKEND=acp
 CODEX_FAMILY_BACKEND=acp
 ```
@@ -107,8 +108,9 @@ BOOTSTRAP_YES=1 \
 CODEX_CLI_AUTH_MODE=api_key \
 CODEX_CLI_BASE_URL=https://你的第三方兼容服务/v1 \
 CODEX_CLI_API_KEY=sk-... \
-CODEX_CLI_MODEL=gpt-5.4 \
-CODEX_CLI_REVIEW_MODEL=gpt-5.4 \
+CODEX_CLI_MODEL=gpt-5.5 \
+CODEX_CLI_REVIEW_MODEL=gpt-5.5 \
+CODEX_CLI_REASONING_EFFORT=high \
 USER_MODE=current \
 PERMISSION_MODE=full \
 LOGIN_ROLE=admin \
@@ -129,8 +131,38 @@ node dist/apps/server/configure-codex.js --apply
 
 - `CODEX_CLI_MODEL` 当作主要对话模型
 - `CODEX_CLI_REVIEW_MODEL` 当作压缩/回顾模型
+- `CODEX_CLI_REASONING_EFFORT` 当作默认思考强度
 
 这样后续做对话压缩和摘要时，不需要临时再问一遍该用哪个模型。
+
+当前默认值是：
+
+- `CODEX_CLI_MODEL=gpt-5.5`
+- `CODEX_CLI_REVIEW_MODEL=gpt-5.5`
+- `CODEX_CLI_REASONING_EFFORT=high`
+
+后续切换模型和思考强度，最简单的办法是改 `.env` 后重新生成 Codex 配置：
+
+```bash
+cd /opt/weixin-household-gateway
+sed -i 's/^CODEX_CLI_MODEL=.*/CODEX_CLI_MODEL=gpt-5.5/' .env
+sed -i 's/^CODEX_CLI_REVIEW_MODEL=.*/CODEX_CLI_REVIEW_MODEL=gpt-5.5/' .env
+sed -i 's/^CODEX_CLI_REASONING_EFFORT=.*/CODEX_CLI_REASONING_EFFORT=high/' .env
+node dist/apps/server/configure-codex.js --apply
+sudo systemctl restart weixin-household-gateway
+```
+
+如果只是想全局切换，这样就够了。
+
+如果你想让 admin 和 family 用不同的模型/思考强度，当前更稳的做法是拆成两套 Codex home：
+
+```env
+CODEX_ADMIN_HOME=/home/ubuntu/.codex-admin
+CODEX_FAMILY_HOME=/home/ubuntu/.codex-family
+```
+
+然后分别在对应 home 里写各自的 `config.toml` / `auth.json`。
+当前这套网关配置里，`admin` / `family` 可以分开指定命令、home、workspace、backend，但 **模型和思考强度本身还是从各自 home 里的 Codex 配置读取**，不是在 `.env` 里按角色分别声明。
 
 再做一次连通性验证：
 

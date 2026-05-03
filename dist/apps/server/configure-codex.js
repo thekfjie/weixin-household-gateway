@@ -19,7 +19,7 @@ function usage() {
         "  CODEX_CLI_AUTH_MODE=api_key",
         "  CODEX_CLI_BASE_URL=https://你的-sub2api/v1",
         "  CODEX_CLI_API_KEY=sk-...",
-        "  CODEX_CLI_MODEL=gpt-5.4",
+        "  CODEX_CLI_MODEL=gpt-5.5",
     ].join("\n");
 }
 function unquoteEnvValue(value) {
@@ -98,9 +98,9 @@ function buildConfigToml(env) {
     const provider = readValue(env, "CODEX_CLI_PROVIDER", baseUrl ? "openai_compat" : "openai");
     const providerName = readValue(env, "CODEX_CLI_PROVIDER_NAME", baseUrl ? "OpenAI-compatible" : "OpenAI");
     const wireApi = readValue(env, "CODEX_CLI_WIRE_API", "responses");
-    const model = readValue(env, "CODEX_CLI_MODEL", "gpt-5.4");
+    const model = readValue(env, "CODEX_CLI_MODEL", "gpt-5.5");
     const reviewModel = readValue(env, "CODEX_CLI_REVIEW_MODEL", model);
-    const reasoningEffort = readValue(env, "CODEX_CLI_REASONING_EFFORT", "xhigh");
+    const reasoningEffort = readValue(env, "CODEX_CLI_REASONING_EFFORT", "high");
     const disableResponseStorage = readBool(env, "CODEX_CLI_DISABLE_RESPONSE_STORAGE", true);
     const networkAccess = readValue(env, "CODEX_CLI_NETWORK_ACCESS", "enabled");
     const contextWindow = readPositiveInteger(env, "CODEX_CLI_CONTEXT_WINDOW", 1_000_000);
