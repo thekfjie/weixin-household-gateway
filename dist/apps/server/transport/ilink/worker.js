@@ -16,6 +16,8 @@ const index_js_6 = require("../../sessions/index.js");
 const media_js_1 = require("./media.js");
 const api_client_js_1 = require("./api-client.js");
 const inbound_js_1 = require("./inbound.js");
+const reply_js_1 = require("./reply.js");
+const typing_js_1 = require("./typing.js");
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -24,88 +26,6 @@ function isReasoningEffort(value) {
 }
 function buildMessageId(prefix) {
     return `${prefix}-${node_crypto_1.default.randomUUID()}`;
-}
-function parseSessionMemory(memoryJson) {
-    try {
-        const parsed = JSON.parse(memoryJson);
-        return {
-            ...(parsed.routeMode === "admin" || parsed.routeMode === "family"
-                ? { routeMode: parsed.routeMode }
-                : {}),
-            ...(typeof parsed.turnCount === "number" && parsed.turnCount >= 0
-                ? { turnCount: parsed.turnCount }
-                : {}),
-            ...(typeof parsed.estimatedTokenCount === "number" &&
-                parsed.estimatedTokenCount >= 0
-                ? { estimatedTokenCount: parsed.estimatedTokenCount }
-                : {}),
-            ...(typeof parsed.carryoverSummary === "string"
-                ? { carryoverSummary: parsed.carryoverSummary }
-                : {}),
-            ...(typeof parsed.carryoverSourceSessionId === "string"
-                ? { carryoverSourceSessionId: parsed.carryoverSourceSessionId }
-                : {}),
-            ...(typeof parsed.carryoverSourceLastActiveAt === "string"
-                ? { carryoverSourceLastActiveAt: parsed.carryoverSourceLastActiveAt }
-                : {}),
-            ...(Array.isArray(parsed.pendingInboundAttachments)
-                ? {
-                    pendingInboundAttachments: parsed.pendingInboundAttachments
-                        .map(parsePendingInboundAttachment)
-                        .filter((item) => Boolean(item)),
-                }
-                : {}),
-        };
-    }
-    catch {
-        return {};
-    }
-}
-function parsePendingInboundAttachment(value) {
-    if (!value || typeof value !== "object") {
-        return undefined;
-    }
-    const record = value;
-    const kind = record.kind === "image" || record.kind === "file"
-        ? record.kind
-        : undefined;
-    const downloadStatus = record.downloadStatus === "ready" || record.downloadStatus === "failed"
-        ? record.downloadStatus
-        : undefined;
-    if (typeof record.id !== "string" ||
-        !kind ||
-        typeof record.fileName !== "string" ||
-        typeof record.receivedAt !== "string" ||
-        !downloadStatus) {
-        return undefined;
-    }
-    return {
-        id: record.id,
-        kind,
-        fileName: record.fileName,
-        receivedAt: record.receivedAt,
-        ...(typeof record.localPath === "string"
-            ? { localPath: record.localPath }
-            : {}),
-        ...(typeof record.sizeBytes === "number"
-            ? { sizeBytes: record.sizeBytes }
-            : {}),
-        ...(typeof record.md5 === "string" ? { md5: record.md5 } : {}),
-        downloadStatus,
-        ...(typeof record.errorMessage === "string"
-            ? { errorMessage: record.errorMessage }
-            : {}),
-    };
-}
-function stringifySessionMemory(state) {
-    return JSON.stringify(state);
-}
-function estimateTextTokens(text) {
-    const trimmed = text.trim();
-    if (!trimmed) {
-        return 0;
-    }
-    return Math.ceil(trimmed.length / 4);
 }
 function formatSessionSnapshot(params) {
     const session = params.session;
@@ -119,22 +39,11 @@ function formatSessionSnapshot(params) {
     else {
         parts.push("summary=(无)");
     }
-    const recentInline = summarizeRecentMessagesInline(params.database.listSessionMessages(session.id, 4).reverse());
+    const recentInline = (0, index_js_6.summarizeRecentMessagesInline)(params.database.listSessionMessages(session.id, 4).reverse());
     if (recentInline) {
         parts.push(`recent=${recentInline}`);
     }
     return parts.join("\n");
-}
-function summarizeRecentMessagesInline(messages) {
-    const recent = messages
-        .slice(-4)
-        .map((message) => {
-        const speaker = message.direction === "inbound" ? "用户" : "助手";
-        const text = message.textContent?.trim() || "[非文本消息]";
-        return `${speaker}：${text}`;
-    })
-        .filter(Boolean);
-    return recent.length > 0 ? recent.join(" / ") : undefined;
 }
 function findPreviousSession(params) {
     const sessions = params.database.listSessionsByPeer(params.session.wechatAccountId, params.session.contactId, 10);
@@ -159,121 +68,8 @@ function findYesterdaySession(params) {
         return candidateDay !== today;
     });
 }
-function isNewBeijingCalendarDay(params) {
-    const previous = new Date(params.previousAt);
-    if (Number.isNaN(previous.getTime())) {
-        return false;
-    }
-    const previousDay = previous.toLocaleDateString("zh-CN", {
-        timeZone: "Asia/Shanghai",
-    });
-    const currentDay = params.now.toLocaleDateString("zh-CN", {
-        timeZone: "Asia/Shanghai",
-    });
-    return previousDay !== currentDay;
-}
-function summarizeCarryoverContext(params) {
-    const lines = [];
-    if (params.session.summaryText.trim()) {
-        lines.push(`上段摘要：${params.session.summaryText.trim()}`);
-    }
-    const recent = params.recentMessages
-        .slice(-6)
-        .map((message) => {
-        const speaker = message.direction === "inbound" ? "用户" : "助手";
-        const text = message.textContent?.trim() || "[非文本消息]";
-        return `${speaker}：${text}`;
-    });
-    if (recent.length > 0) {
-        lines.push(`上段最近消息：${recent.join(" / ")}`);
-    }
-    return lines.join("\n").trim();
-}
-function buildDeterministicSessionSummary(params) {
-    const parts = [];
-    const recentInline = summarizeRecentMessagesInline(params.recentMessages);
-    if (recentInline) {
-        parts.push(`最近对话：${recentInline}`);
-    }
-    const attachmentMentions = params.recentMessages
-        .filter((message) => message.filePath)
-        .slice(-3)
-        .map((message) => node_path_1.default.basename(message.filePath ?? ""))
-        .filter(Boolean);
-    if (attachmentMentions.length > 0) {
-        parts.push(`相关文件：${attachmentMentions.join("、")}`);
-    }
-    if (parts.length === 0) {
-        return "";
-    }
-    return parts.join("\n");
-}
-function shouldRotateByThresholds(params) {
-    const now = new Date();
-    if (isNewBeijingCalendarDay({
-        previousAt: params.session.lastActiveAt,
-        now,
-    })) {
-        return {
-            shouldRotate: true,
-            reason: "crossed into a new Beijing calendar day",
-        };
-    }
-    const idleDecision = (0, index_js_6.shouldRotateSession)({
-        lastActiveAt: params.session.lastActiveAt,
-        now,
-        maxIdleHours: params.config.session.rotateIdleHours,
-    });
-    if (idleDecision.shouldRotate) {
-        return idleDecision;
-    }
-    const turnCount = params.memory.turnCount ?? 0;
-    if (turnCount >= params.config.session.rotateMaxTurns) {
-        return {
-            shouldRotate: true,
-            reason: `turn count ${turnCount} >= ${params.config.session.rotateMaxTurns}`,
-        };
-    }
-    const estimatedTokenCount = params.memory.estimatedTokenCount ?? 0;
-    if (estimatedTokenCount >= params.config.session.rotateMaxEstimatedTokens) {
-        return {
-            shouldRotate: true,
-            reason: `estimated tokens ${estimatedTokenCount} >= ${params.config.session.rotateMaxEstimatedTokens}`,
-        };
-    }
-    return {
-        shouldRotate: false,
-        reason: "session is still warm",
-    };
-}
-function buildCrossDayNotice(params) {
-    const previous = new Date(params.previousLastActiveAt);
-    if (Number.isNaN(previous.getTime())) {
-        return undefined;
-    }
-    const previousDay = previous.toLocaleDateString("zh-CN", {
-        timeZone: "Asia/Shanghai",
-    });
-    const currentDay = params.now.toLocaleDateString("zh-CN", {
-        timeZone: "Asia/Shanghai",
-    });
-    if (previousDay === currentDay) {
-        return undefined;
-    }
-    return "前置信息：这条消息属于新的一天里的新对话；如当前语境需要，再自然参考上一段对话摘要，不要生硬提起。";
-}
-function detectPreviousSessionReference(text) {
-    const normalized = text.replace(/\s+/g, "");
-    if (/(昨天那个|昨天那次|昨天那份|昨天说的|昨天聊的|昨天做的|昨天发的|昨天提到的|前天那个|前天那次)/.test(normalized)) {
-        return "yesterday";
-    }
-    if (/(上一次|上回|上次|上一段|之前那个|前面的那个|之前那次|上个对话|刚才那个)/.test(normalized)) {
-        return "previous";
-    }
-    return undefined;
-}
 function buildPreviousSessionHint(params) {
-    const referenceKind = detectPreviousSessionReference(params.userText);
+    const referenceKind = (0, index_js_1.detectPreviousSessionReference)(params.userText);
     if (!referenceKind) {
         return undefined;
     }
@@ -309,22 +105,11 @@ function buildPreviousSessionHint(params) {
     if (previous.summaryText.trim()) {
         lines.push(`上一段对话摘要：${previous.summaryText.trim()}`);
     }
-    const recentInline = summarizeRecentMessagesInline(recentMessages);
+    const recentInline = (0, index_js_6.summarizeRecentMessagesInline)(recentMessages);
     if (recentInline) {
         lines.push(`上一段最近消息：${recentInline}`);
     }
     return lines.join("\n");
-}
-function buildDayChangeUserNotice(params) {
-    if (!isNewBeijingCalendarDay({
-        previousAt: params.session.lastActiveAt,
-        now: params.now,
-    })) {
-        return undefined;
-    }
-    return params.role === "family"
-        ? "昨天那段我先收起来了，我们接着聊；要回看上一段可以发 /last 或 /yesterday。"
-        : "已按新的一天开启新对话；如需回看上一段，可用 /last 或 /yesterday。";
 }
 function buildCommandReply(params) {
     switch (params.command.name) {
@@ -385,7 +170,7 @@ function buildCommandReply(params) {
                 return "普通 family 账号不能切到 admin。";
             }
             const nextRole = requested;
-            const nextMemory = stringifySessionMemory({
+            const nextMemory = (0, index_js_6.stringifySessionMemory)({
                 ...params.sessionMemory,
                 routeMode: nextRole,
             });
@@ -483,14 +268,10 @@ function buildCommandReply(params) {
                 id: params.session.id,
                 wechatAccountId: params.session.wechatAccountId,
                 contactId: params.session.contactId,
-                role: params.sessionMemory.routeMode ?? params.role,
+                role: params.accountRole,
                 status: "active",
                 summaryText: "",
-                memoryJson: stringifySessionMemory({
-                    ...(params.sessionMemory.routeMode
-                        ? { routeMode: params.sessionMemory.routeMode }
-                        : {}),
-                }),
+                memoryJson: (0, index_js_6.stringifySessionMemory)({}),
                 contextToken: params.session.contextToken,
                 lastActiveAt: new Date().toISOString(),
             });
@@ -661,7 +442,7 @@ function buildFilesReply(params) {
     }
     return [
         "最近可发送文件：",
-        ...recent.map((file) => `${file.filePath}  ${formatBytes(file.size)}`),
+        ...recent.map((file) => `${file.filePath}  ${(0, reply_js_1.formatBytes)(file.size)}`),
     ].join("\n");
 }
 function listFilesForReply(directory, maxDepth) {
@@ -695,20 +476,6 @@ function listFilesForReply(directory, maxDepth) {
         }
     }
     return files;
-}
-function formatBytes(value) {
-    if (value < 1024) {
-        return `${value} B`;
-    }
-    const units = ["KB", "MB", "GB"];
-    let next = value / 1024;
-    for (const unit of units) {
-        if (next < 1024 || unit === units[units.length - 1]) {
-            return `${next.toFixed(next >= 10 ? 1 : 2)} ${unit}`;
-        }
-        next /= 1024;
-    }
-    return `${value} B`;
 }
 function sanitizeFileName(fileName) {
     const sanitized = fileName
@@ -762,7 +529,7 @@ function buildAttachmentPromptBlock(attachments) {
         const parts = [
             `${index + 1}. ${attachment.kind === "image" ? "图片" : "文件"}：${attachment.fileName}`,
             attachment.sizeBytes !== undefined
-                ? `大小 ${formatBytes(attachment.sizeBytes)}`
+                ? `大小 ${(0, reply_js_1.formatBytes)(attachment.sizeBytes)}`
                 : undefined,
             attachment.localPath && attachment.downloadStatus === "ready"
                 ? `本地路径 ${attachment.localPath}`
@@ -803,81 +570,6 @@ function buildInboundAttachmentAckPlaceholders(attachments) {
         fileName: sanitizeFileName(attachment.fileName),
     }));
 }
-function extractQuotedText(text) {
-    const match = text.match(/["'“”‘’]([^"'“”‘’]+)["'“”‘’]/);
-    return match?.[1]?.trim() || undefined;
-}
-function extractAbsolutePath(text) {
-    const quoted = extractQuotedText(text);
-    if (quoted && (node_path_1.default.isAbsolute(quoted) || /^[A-Za-z]:[\\/]/.test(quoted))) {
-        return quoted;
-    }
-    const match = text.match(/(?:^|\s)((?:\/[^\s"'“”‘’]+)+|[A-Za-z]:[\\/][^\s"'“”‘’]+)/);
-    return match?.[1]?.trim() || undefined;
-}
-function parseNaturalFileRequest(text) {
-    const hasSendIntent = /(发|发送|传|传给|send)\s*/i.test(text);
-    if (!hasSendIntent) {
-        return undefined;
-    }
-    const filePath = extractAbsolutePath(text);
-    if (!filePath) {
-        return undefined;
-    }
-    const caption = text.replace(filePath, "").replace(/["'“”‘’]/g, "").trim();
-    return {
-        name: "/file",
-        raw: text,
-        args: caption ? [filePath, caption] : [filePath],
-    };
-}
-function parseAssistantFileAction(text) {
-    const match = text.match(/\[\[send_file\s+path=(?:"([^"]+)"|'([^']+)'|([^\]\s]+))(?:\s+caption=(?:"([^"]*)"|'([^']*)'|([^\]]+)))?\s*\]\]/i);
-    if (!match) {
-        return undefined;
-    }
-    const filePath = (match[1] ?? match[2] ?? match[3] ?? "").trim();
-    const caption = (match[4] ?? match[5] ?? match[6] ?? "").trim();
-    if (!filePath) {
-        return undefined;
-    }
-    return {
-        command: {
-            name: "/file",
-            raw: match[0],
-            args: caption ? [filePath, caption] : [filePath],
-        },
-        cleanedText: text.replace(match[0], "").trim(),
-    };
-}
-function splitReplyText(text, maxChars) {
-    const trimmed = text.trim();
-    if (!trimmed) {
-        return [];
-    }
-    if (maxChars <= 0 || trimmed.length <= maxChars) {
-        return [trimmed];
-    }
-    const chunks = [];
-    let remaining = trimmed;
-    while (remaining.length > maxChars) {
-        const window = remaining.slice(0, maxChars);
-        const cutAt = Math.max(window.lastIndexOf("\n\n"), window.lastIndexOf("\n"), window.lastIndexOf("。"), window.lastIndexOf("！"), window.lastIndexOf("？"), window.lastIndexOf(". "), window.lastIndexOf(" "));
-        const end = cutAt > Math.floor(maxChars * 0.45) ? cutAt + 1 : maxChars;
-        chunks.push(remaining.slice(0, end).trim());
-        remaining = remaining.slice(end).trim();
-    }
-    if (remaining) {
-        chunks.push(remaining);
-    }
-    return chunks.filter(Boolean);
-}
-function buildCommandErrorReply(params) {
-    const message = (0, index_js_4.errorToRedactedMessage)(params.error);
-    return params.role === "admin"
-        ? `命令执行失败：${message}`
-        : "这个命令暂时没有执行成功。";
-}
 async function handleFileCommand(params) {
     if (params.role !== "admin") {
         return "这个文件命令只对 admin 开放。";
@@ -901,7 +593,7 @@ async function handleFileCommand(params) {
         throw new Error(`不是普通文件：${filePath}`);
     }
     if (stat.size > params.config.fileSend.maxBytes) {
-        throw new Error(`文件太大：${formatBytes(stat.size)}，上限 ${formatBytes(params.config.fileSend.maxBytes)}`);
+        throw new Error(`文件太大：${(0, reply_js_1.formatBytes)(stat.size)}，上限 ${(0, reply_js_1.formatBytes)(params.config.fileSend.maxBytes)}`);
     }
     (0, index_js_3.assertFileAllowedForWechatCommand)(filePath, params.config.fileSend);
     const caption = captionParts.join(" ").trim();
@@ -915,7 +607,7 @@ async function handleFileCommand(params) {
     return [
         "文件已发送。",
         `文件：${result.fileName}`,
-        `大小：${formatBytes(result.sizeBytes)}`,
+        `大小：${(0, reply_js_1.formatBytes)(result.sizeBytes)}`,
         `MD5：${result.plaintextMd5}`,
     ].join("\n");
 }
@@ -1029,10 +721,10 @@ function buildCodexBootstrapPrompt(params) {
             "如果用户明确要求发送服务器本地文件，且你知道绝对路径，可以只输出动作标记：[[send_file path=\"/absolute/path\" caption=\"可选说明\"]]。不要解释这个标记。",
         ].join("\n")
         : "前置信息：当前路由是 family。";
-    const sessionMemory = parseSessionMemory(params.session.memoryJson);
+    const sessionMemory = (0, index_js_6.parseSessionMemory)(params.session.memoryJson);
     const carryoverInstruction = sessionMemory.carryoverSummary
         ? [
-            buildCrossDayNotice({
+            (0, index_js_6.buildCrossDayNotice)({
                 previousLastActiveAt: sessionMemory.carryoverSourceLastActiveAt ?? params.session.lastActiveAt,
                 now: new Date(),
             }) ?? "前置信息：这里附带上一段对话的简要信息，如和当前问题相关再使用。",
@@ -1141,20 +833,8 @@ async function buildCodexReply(params) {
     }
     return result.text;
 }
-function buildCodexErrorReply(params) {
-    const message = (0, index_js_4.errorToRedactedMessage)(params.error);
-    const codexCommand = params.codexCommand ?? "codex";
-    if (params.role === "admin") {
-        return [
-            "Codex 调用失败了。",
-            message,
-            `可以先在服务器上用同一个用户执行 \`${codexCommand} exec --skip-git-repo-check "你好"\` 验证登录和非交互执行是否正常。`,
-        ].join("\n");
-    }
-    return "我这边调用助手时出了一点问题，先稍等一下再试。";
-}
 async function handleAssistantFileActions(params) {
-    const action = parseAssistantFileAction(params.rawReply);
+    const action = (0, index_js_1.parseAssistantFileAction)(params.rawReply);
     if (!action) {
         return params.rawReply;
     }
@@ -1182,97 +862,6 @@ async function handleAssistantFileActions(params) {
         role: params.role,
     });
     return [action.cleanedText, fileReply].filter(Boolean).join("\n");
-}
-async function withTypingIndicator(params) {
-    let typingTicket = "";
-    let refreshing = false;
-    let refreshTimer;
-    let thinkingTimer;
-    let thinkingNoticeCount = 0;
-    let sendingThinkingNotice = false;
-    const sendTypingStatus = async (status) => {
-        if (!typingTicket) {
-            return;
-        }
-        await params.client.sendTyping({
-            ilink_user_id: params.toUserId,
-            typing_ticket: typingTicket,
-            status,
-        });
-    };
-    try {
-        const config = await params.client.getConfig(params.toUserId, params.contextToken);
-        typingTicket = config.typing_ticket?.trim() ?? "";
-        if (typingTicket) {
-            await sendTypingStatus(1);
-            if (params.typingRefreshMs > 0) {
-                refreshTimer = setInterval(() => {
-                    if (refreshing) {
-                        return;
-                    }
-                    refreshing = true;
-                    sendTypingStatus(1)
-                        .catch((error) => {
-                        console.warn("[worker] failed to refresh typing indicator", error);
-                    })
-                        .finally(() => {
-                        refreshing = false;
-                    });
-                }, params.typingRefreshMs);
-            }
-        }
-    }
-    catch (error) {
-        console.warn("[worker] failed to start typing indicator", error);
-    }
-    if (params.thinkingNoticeIntervalMs > 0) {
-        thinkingTimer = setInterval(() => {
-            if (params.shouldSendThinkingNotice && !params.shouldSendThinkingNotice()) {
-                return;
-            }
-            if (sendingThinkingNotice) {
-                return;
-            }
-            thinkingNoticeCount += 1;
-            sendingThinkingNotice = true;
-            (0, media_js_1.sendTextMessage)({
-                client: params.client,
-                toUserId: params.toUserId,
-                contextToken: params.contextToken,
-                text: params.buildThinkingNoticeText(Math.round((thinkingNoticeCount * params.thinkingNoticeIntervalMs) / 1000)),
-            })
-                .catch((error) => {
-                console.warn("[worker] failed to send thinking notice", error);
-            })
-                .finally(() => {
-                sendingThinkingNotice = false;
-            });
-        }, params.thinkingNoticeIntervalMs);
-    }
-    try {
-        return await params.work();
-    }
-    finally {
-        if (refreshTimer) {
-            clearInterval(refreshTimer);
-        }
-        if (thinkingTimer) {
-            clearInterval(thinkingTimer);
-        }
-        if (typingTicket) {
-            try {
-                await sendTypingStatus(2);
-            }
-            catch (error) {
-                console.warn("[worker] failed to stop typing indicator", error);
-            }
-        }
-    }
-}
-function buildThinkingNoticeText(params) {
-    return params.role === "admin"
-        ? `我已思考 ${params.elapsedSeconds} 秒，还在处理，稍等一下。`
-        : `我已经想了 ${params.elapsedSeconds} 秒，还在处理，稍等我一下哦。`;
 }
 class WechatWorker {
     options;
@@ -1375,7 +964,7 @@ class WechatWorker {
             contactId: inbound.contactId,
             role: accountRoute.role,
         });
-        const existingSessionMemory = parseSessionMemory(session.memoryJson);
+        const existingSessionMemory = (0, index_js_6.parseSessionMemory)(session.memoryJson);
         const route = existingSessionMemory.routeMode === "admin" ||
             existingSessionMemory.routeMode === "family"
             ? { role: existingSessionMemory.routeMode }
@@ -1383,15 +972,15 @@ class WechatWorker {
         const recentMessagesForCarryover = this.options.database
             .listSessionMessages(session.id, 12)
             .reverse();
-        const archivedSummary = buildDeterministicSessionSummary({
+        const archivedSummary = (0, index_js_6.buildDeterministicSessionSummary)({
             session,
             recentMessages: recentMessagesForCarryover,
         }) || session.summaryText;
-        const carryoverSummary = summarizeCarryoverContext({
+        const carryoverSummary = (0, index_js_6.summarizeCarryoverContext)({
             session,
             recentMessages: recentMessagesForCarryover,
         });
-        const rotateDecision = shouldRotateByThresholds({
+        const rotateDecision = (0, index_js_6.shouldRotateByThresholds)({
             session,
             memory: existingSessionMemory,
             config: this.options.config,
@@ -1402,7 +991,7 @@ class WechatWorker {
                 previousSession: session,
                 role: route.role,
                 summaryText: archivedSummary,
-                memoryJson: stringifySessionMemory({
+                memoryJson: (0, index_js_6.stringifySessionMemory)({
                     ...(existingSessionMemory.routeMode
                         ? { routeMode: existingSessionMemory.routeMode }
                         : {}),
@@ -1420,7 +1009,7 @@ class WechatWorker {
             : session;
         const dayChangeNotice = rotateDecision.shouldRotate &&
             rotateDecision.reason === "crossed into a new Beijing calendar day"
-            ? buildDayChangeUserNotice({
+            ? (0, index_js_6.buildDayChangeUserNotice)({
                 session,
                 role: route.role,
                 now: new Date(),
@@ -1441,7 +1030,7 @@ class WechatWorker {
             config: this.options.config,
             sessionId: activeSession.id,
         });
-        const sessionMemory = parseSessionMemory(activeSession.memoryJson);
+        const sessionMemory = (0, index_js_6.parseSessionMemory)(activeSession.memoryJson);
         if (inbound.attachments.length > 0 && !inbound.text.trim()) {
             const ack = buildMediaAckReply({
                 role: route.role,
@@ -1484,11 +1073,11 @@ class WechatWorker {
             sourceMessageId: inbound.sourceMessageId,
         });
         if (downloadedAttachments.length > 0 && !inbound.text.trim()) {
-            const nextMemory = stringifySessionMemory({
+            const nextMemory = (0, index_js_6.stringifySessionMemory)({
                 ...sessionMemory,
                 turnCount: (sessionMemory.turnCount ?? 0) + 1,
                 estimatedTokenCount: (sessionMemory.estimatedTokenCount ?? 0) +
-                    estimateTextTokens([inbound.mediaSummary, inbound.text].filter(Boolean).join("\n")),
+                    (0, index_js_6.estimateTextTokens)([inbound.mediaSummary, inbound.text].filter(Boolean).join("\n")),
                 pendingInboundAttachments: [
                     ...(sessionMemory.pendingInboundAttachments ?? []),
                     ...downloadedAttachments,
@@ -1529,7 +1118,7 @@ class WechatWorker {
             return;
         }
         const parsedCommand = (0, index_js_1.parseBuiltInCommand)(inbound.text) ??
-            (route.role === "admin" ? parseNaturalFileRequest(inbound.text) : undefined);
+            (route.role === "admin" ? (0, index_js_1.parseNaturalFileRequest)(inbound.text) : undefined);
         const pendingAttachments = parsedCommand
             ? downloadedAttachments
             : [
@@ -1547,7 +1136,7 @@ class WechatWorker {
                 role: route.role,
                 status: activeSession.status,
                 summaryText: activeSession.summaryText,
-                memoryJson: stringifySessionMemory({
+                memoryJson: (0, index_js_6.stringifySessionMemory)({
                     ...sessionMemory,
                     pendingInboundAttachments: [],
                 }),
@@ -1591,7 +1180,7 @@ class WechatWorker {
             }
             catch (error) {
                 console.error("[worker] command failed", error);
-                rawReply = buildCommandErrorReply({
+                rawReply = (0, reply_js_1.buildCommandErrorReply)({
                     error,
                     role: route.role,
                 });
@@ -1600,14 +1189,14 @@ class WechatWorker {
         else {
             try {
                 const progress = { phase: "thinking" };
-                rawReply = await withTypingIndicator({
+                rawReply = await (0, typing_js_1.withTypingIndicator)({
                     client,
                     toUserId: inbound.contactId,
                     contextToken: inbound.contextToken,
                     typingRefreshMs: this.options.config.wechat.typingRefreshMs,
                     thinkingNoticeIntervalMs: this.options.config.wechat.thinkingNoticeMs,
                     shouldSendThinkingNotice: () => progress.phase === "thinking",
-                    buildThinkingNoticeText: (elapsedSeconds) => buildThinkingNoticeText({
+                    buildThinkingNoticeText: (elapsedSeconds) => (0, reply_js_1.buildThinkingNoticeText)({
                         role: route.role,
                         elapsedSeconds,
                     }),
@@ -1639,9 +1228,11 @@ class WechatWorker {
             }
             catch (error) {
                 console.error("[worker] codex reply failed", error);
-                rawReply = buildCodexErrorReply({
+                rawReply = (0, reply_js_1.buildCodexErrorReply)({
                     error,
                     role: route.role,
+                    accountRole: accountRoute.role,
+                    sessionMode: sessionMemory.routeMode,
                     codexCommand: this.options.config.codex[route.role].command,
                 });
             }
@@ -1654,7 +1245,7 @@ class WechatWorker {
             return;
         }
         let lastClientId = "";
-        const chunks = splitReplyText(finalReplyText, this.options.config.wechat.replyChunkChars);
+        const chunks = (0, reply_js_1.splitReplyText)(finalReplyText, this.options.config.wechat.replyChunkChars);
         for (const [index, chunk] of chunks.entries()) {
             lastClientId = await (0, media_js_1.sendTextMessage)({
                 client,
@@ -1675,7 +1266,7 @@ class WechatWorker {
             createdAt: new Date().toISOString(),
             sourceMessageId: lastClientId || inbound.sourceMessageId,
         });
-        const latestMemory = parseSessionMemory(sessionForReply.memoryJson);
+        const latestMemory = (0, index_js_6.parseSessionMemory)(sessionForReply.memoryJson);
         this.options.database.saveSession({
             id: sessionForReply.id,
             wechatAccountId: sessionForReply.wechatAccountId,
@@ -1683,12 +1274,12 @@ class WechatWorker {
             role: route.role,
             status: sessionForReply.status,
             summaryText: sessionForReply.summaryText,
-            memoryJson: stringifySessionMemory({
+            memoryJson: (0, index_js_6.stringifySessionMemory)({
                 ...latestMemory,
                 turnCount: Math.max(latestMemory.turnCount ?? 0, sessionMemory.turnCount ?? 0) + 1,
                 estimatedTokenCount: Math.max(latestMemory.estimatedTokenCount ?? 0, sessionMemory.estimatedTokenCount ?? 0) +
-                    estimateTextTokens(userTextForCodex) +
-                    estimateTextTokens(finalReplyText),
+                    (0, index_js_6.estimateTextTokens)(userTextForCodex) +
+                    (0, index_js_6.estimateTextTokens)(finalReplyText),
             }),
             contextToken: sessionForReply.contextToken,
             lastActiveAt: new Date().toISOString(),

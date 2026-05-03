@@ -58,7 +58,7 @@ class AcpCodexBackend {
         const additionalDirectories = normalizeDirectories(request.additionalDirectories);
         const readOnlyDirectories = normalizeDirectories(request.readOnlyDirectories);
         const conn = await withTimeout(this.connection.ensureReady(), Math.min(this.config.timeoutMs, 60_000), "ACP connection timed out");
-        const session = await this.getOrCreateSession(request.conversationId, conn, additionalDirectories, readOnlyDirectories);
+        const session = await this.getOrCreateSession(request.conversationId, conn, request.role, additionalDirectories, readOnlyDirectories);
         const collector = new acp_response_collector_js_1.AcpResponseCollector({
             ...(request.onProgress ? { onProgress: request.onProgress } : {}),
             ...(request.responseMode ? { responseMode: request.responseMode } : {}),
@@ -102,10 +102,11 @@ class AcpCodexBackend {
             this.connection.unregisterCollector(session.sessionId);
         }
     }
-    async getOrCreateSession(conversationId, conn, additionalDirectories, readOnlyDirectories) {
+    async getOrCreateSession(conversationId, conn, role, additionalDirectories, readOnlyDirectories) {
         const existing = this.sessions.get(conversationId);
         if (existing) {
             this.connection.setSessionPermissions(existing, {
+                role,
                 additionalDirectories,
                 readOnlyDirectories,
             });
@@ -132,6 +133,7 @@ class AcpCodexBackend {
                 console.log(`[codex:acp] loaded persisted session ${persisted} for ${conversationId}`);
                 this.sessions.set(conversationId, persisted);
                 this.connection.setSessionPermissions(persisted, {
+                    role,
                     additionalDirectories,
                     readOnlyDirectories,
                 });
@@ -155,6 +157,7 @@ class AcpCodexBackend {
         }), Math.min(this.config.timeoutMs, 60_000), "ACP newSession timed out");
         this.sessions.set(conversationId, response.sessionId);
         this.connection.setSessionPermissions(response.sessionId, {
+            role,
             additionalDirectories,
             readOnlyDirectories,
         });

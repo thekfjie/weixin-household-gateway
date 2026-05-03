@@ -381,14 +381,10 @@ function buildCommandReply(params: {
         id: params.session.id,
         wechatAccountId: params.session.wechatAccountId,
         contactId: params.session.contactId,
-        role: params.sessionMemory.routeMode ?? params.role,
+        role: params.accountRole,
         status: "active",
         summaryText: "",
-        memoryJson: stringifySessionMemory({
-          ...(params.sessionMemory.routeMode
-            ? { routeMode: params.sessionMemory.routeMode }
-            : {}),
-        }),
+        memoryJson: stringifySessionMemory({}),
         contextToken: params.session.contextToken,
         lastActiveAt: new Date().toISOString(),
       });
@@ -1598,15 +1594,17 @@ export class WechatWorker {
           session: sessionForReply,
           role: route.role,
         });
-      } catch (error) {
-        console.error("[worker] codex reply failed", error);
-        rawReply = buildCodexErrorReply({
-          error,
-          role: route.role,
-          codexCommand: this.options.config.codex[route.role].command,
-        });
+        } catch (error) {
+          console.error("[worker] codex reply failed", error);
+          rawReply = buildCodexErrorReply({
+            error,
+            role: route.role,
+            accountRole: accountRoute.role,
+            sessionMode: sessionMemory.routeMode,
+            codexCommand: this.options.config.codex[route.role].command,
+          });
+        }
       }
-    }
 
     const replyText =
       route.role === "family"

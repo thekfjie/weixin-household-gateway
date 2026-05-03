@@ -253,8 +253,12 @@ function extractToolCallText(params) {
         .filter(Boolean)
         .join("\n") ?? "");
 }
-function isBlockedExecuteText(text) {
-    return /\b(curl|wget|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|apt|apt-get|yum|dnf|brew|systemctl|service|mount|umount|docker|kubectl)\b/.test(text);
+const FAMILY_BLOCKED_COMMANDS = /\b(curl|wget|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|apt|apt-get|yum|dnf|brew|systemctl|service|mount|umount|docker|kubectl|rm|dd|mkfs|fdisk|iptables|reboot|shutdown|halt|poweroff)\b/;
+function isBlockedExecuteText(text, role) {
+    if (role === "admin") {
+        return false;
+    }
+    return FAMILY_BLOCKED_COMMANDS.test(text);
 }
 function choosePermissionOption(options, preferredKinds) {
     for (const option of options) {
@@ -265,6 +269,7 @@ function choosePermissionOption(options, preferredKinds) {
     return options[0];
 }
 function decidePermission(config, context, params) {
+    const role = context?.role ?? "family";
     const allowedRoots = normalizePathList([
         config.workspace,
         ...(context?.additionalDirectories ?? []),
@@ -281,6 +286,18 @@ function decidePermission(config, context, params) {
     const describeRoots = allowedRoots.join(", ") || config.workspace;
     const allowKinds = new Set(["allow_once", "allow_always"]);
     const rejectKinds = new Set(["reject_once", "reject_always"]);
+    // admin 对所有操作放行（full-auto 模式的设计意图）
+    if (role === "admin") {
+        const option = choosePermissionOption(params.options, allowKinds);
+        if (option) {
+            return {
+                allowed: true,
+                reason: `allow admin ${kind} (unrestricted)`,
+                optionId: option.optionId,
+            };
+        }
+    }
+    // 以下仅对 family 角色生效
     if (kind === "read") {
         if (touchedPaths.length > 0 &&
             touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)))) {
@@ -312,7 +329,7 @@ function decidePermission(config, context, params) {
         const contentText = extractToolCallText(params).toLowerCase();
         if (touchedPaths.length > 0 &&
             touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root))) &&
-            !isBlockedExecuteText(contentText)) {
+            !isBlockedExecuteText(contentText, role)) {
             const option = choosePermissionOption(params.options, allowKinds);
             if (option) {
                 return {
@@ -355,6 +372,7 @@ class AcpConnection {
     }
     setSessionPermissions(sessionId, context) {
         this.sessionPermissions.set(sessionId, {
+            role: context.role,
             additionalDirectories: normalizePathList(context.additionalDirectories),
             readOnlyDirectories: normalizePathList(context.readOnlyDirectories),
         });

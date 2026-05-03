@@ -40,10 +40,24 @@ export function splitReplyText(text: string, maxChars: number): string[] {
 export function buildCodexErrorReply(params: {
   error: unknown;
   role: UserRole;
+  accountRole?: UserRole | undefined;
+  sessionMode?: UserRole | undefined;
   codexCommand?: string;
 }): string {
   const message = errorToRedactedMessage(params.error);
   const codexCommand = params.codexCommand ?? "codex";
+  const currentMode = params.sessionMode ?? params.role;
+
+  if (params.accountRole === "admin" && currentMode !== "admin") {
+    return [
+      "Codex 调用失败了。",
+      message,
+      `当前账号默认角色：admin`,
+      `当前会话模式：${currentMode}`,
+      "如果你本来想用管理员权限，先发 `/mode admin` 切回管理员模式，再重试。",
+      "如果想彻底清掉这次会话里的临时模式，也可以先发 `/reset`。",
+    ].join("\n");
+  }
 
   if (params.role === "admin") {
     return [
