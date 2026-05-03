@@ -14,6 +14,7 @@ const node_path_1 = __importDefault(require("node:path"));
 const node_stream_1 = require("node:stream");
 const sdk_1 = require("@agentclientprotocol/sdk");
 const run_codex_js_1 = require("./run-codex.js");
+const permission_review_js_1 = require("./permission-review.js");
 const ACP_AUTH_ENV_KEYS = [
     "CODEX_CLI_HOME",
     "CODEX_CLI_API_KEY",
@@ -362,6 +363,15 @@ function decidePermission(config, context, params) {
         ...(rejectOption ? { optionId: rejectOption.optionId } : {}),
     };
 }
+function collectTouchedPaths(params) {
+    return [
+        ...(params.toolCall.locations?.map((item) => item.path) ?? []),
+        ...extractPathsFromRawInput(params.toolCall.rawInput),
+        ...extractPathsFromToolCallText(params),
+    ]
+        .filter(Boolean)
+        .map((item) => node_path_1.default.resolve(item));
+}
 class AcpConnection {
     config;
     onExit;
@@ -464,8 +474,37 @@ class AcpConnection {
                 this.collectors.get(params.sessionId)?.handleUpdate(params);
             },
             requestPermission: async (params) => {
-                const decision = decidePermission(this.config, this.sessionPermissions.get(params.sessionId), params);
+                let decision = decidePermission(this.config, this.sessionPermissions.get(params.sessionId), params);
                 const detail = formatToolCallDetails(params);
+                const permissionContext = this.sessionPermissions.get(params.sessionId);
+                const role = permissionContext?.role ?? "family";
+                const touchedPaths = collectTouchedPaths(params);
+                const contentText = extractToolCallText(params);
+                if (!decision.allowed && role === "family") {
+                    const reviewed = await (0, permission_review_js_1.reviewFamilyPermission)({
+                        config: this.config.permissionReview,
+                        toolKind: params.toolCall.kind ?? "other",
+                        detail,
+                        contentText,
+                        touchedPaths,
+                    });
+                    if (reviewed?.allow) {
+                        const allowOption = choosePermissionOption(params.options, new Set(["allow_once", "allow_always"]));
+                        if (allowOption) {
+                            decision = {
+                                allowed: true,
+                                reason: `allow family after model review: ${reviewed.reason}`,
+                                optionId: allowOption.optionId,
+                            };
+                        }
+                    }
+                    else if (reviewed?.reason) {
+                        decision = {
+                            ...decision,
+                            reason: `${decision.reason}; ${reviewed.reason}`,
+                        };
+                    }
+                }
                 this.lastPermissionDecisionBySession.set(params.sessionId, `${decision.reason}: ${detail}`);
                 if (decision.allowed && decision.optionId) {
                     console.log(`[codex:acp] permission request allowed: ${decision.reason}: ${detail}`);

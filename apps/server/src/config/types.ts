@@ -11,6 +11,12 @@ export interface CodexRoleOverrides {
   reasoningEffort?: CodexReasoningEffort;
 }
 
+export interface PermissionReviewConfig {
+  enabled: boolean;
+  model: string;
+  timeoutMs: number;
+}
+
 export interface CodexRuntimeConfig {
   backend: CodexBackendKind;
   command: string;
@@ -25,6 +31,7 @@ export interface CodexRuntimeConfig {
   envMode: CodexEnvMode;
   envPassthrough: string[];
   roleOverrides?: CodexRoleOverrides | undefined;
+  permissionReview?: PermissionReviewConfig | undefined;
 }
 
 export interface FamilyPolicyConfig {

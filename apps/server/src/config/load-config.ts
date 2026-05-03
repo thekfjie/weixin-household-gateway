@@ -373,6 +373,11 @@ export function loadConfig(): AppConfig {
         ),
         envMode: readEnvMode("CODEX_ADMIN_ENV_MODE", "inherit"),
         envPassthrough: readNameList("CODEX_ADMIN_ENV_PASSTHROUGH"),
+        permissionReview: {
+          enabled: false,
+          model: readOptionalEnv("CODEX_ADMIN_PERMISSION_REVIEW_MODEL", "gpt-5.5-mini"),
+          timeoutMs: readPositiveInteger("CODEX_ADMIN_PERMISSION_REVIEW_TIMEOUT_MS", 10_000),
+        },
       },
       family: {
         backend: readBackend("CODEX_FAMILY_BACKEND", codexBackend),
@@ -401,6 +406,11 @@ export function loadConfig(): AppConfig {
         ),
         envMode: readEnvMode("CODEX_FAMILY_ENV_MODE", "minimal"),
         envPassthrough: readNameList("CODEX_FAMILY_ENV_PASSTHROUGH"),
+        permissionReview: {
+          enabled: readBoolean("CODEX_FAMILY_PERMISSION_REVIEW_ENABLED", true),
+          model: readOptionalEnv("CODEX_FAMILY_PERMISSION_REVIEW_MODEL", "gpt-5.5-mini"),
+          timeoutMs: readPositiveInteger("CODEX_FAMILY_PERMISSION_REVIEW_TIMEOUT_MS", 8_000),
+        },
       },
     },
     familyPolicy: {

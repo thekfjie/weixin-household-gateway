@@ -16,6 +16,7 @@ import {
 import { CodexRuntimeConfig, UserRole } from "../config/types.js";
 import { buildChildEnv } from "./run-codex.js";
 import { AcpResponseCollector } from "./acp-response-collector.js";
+import { reviewFamilyPermission } from "./permission-review.js";
 
 const ACP_AUTH_ENV_KEYS = [
   "CODEX_CLI_HOME",
@@ -491,6 +492,18 @@ function decidePermission(
   };
 }
 
+function collectTouchedPaths(
+  params: RequestPermissionRequest,
+): string[] {
+  return [
+    ...(params.toolCall.locations?.map((item) => item.path) ?? []),
+    ...extractPathsFromRawInput(params.toolCall.rawInput),
+    ...extractPathsFromToolCallText(params),
+  ]
+    .filter(Boolean)
+    .map((item) => path.resolve(item));
+}
+
 export class AcpConnection {
   private process: ChildProcess | undefined;
 
@@ -623,12 +636,45 @@ export class AcpConnection {
         this.collectors.get(params.sessionId)?.handleUpdate(params);
       },
       requestPermission: async (params) => {
-        const decision = decidePermission(
+        let decision = decidePermission(
           this.config,
           this.sessionPermissions.get(params.sessionId),
           params,
         );
         const detail = formatToolCallDetails(params);
+        const permissionContext = this.sessionPermissions.get(params.sessionId);
+        const role = permissionContext?.role ?? "family";
+        const touchedPaths = collectTouchedPaths(params);
+        const contentText = extractToolCallText(params);
+
+        if (!decision.allowed && role === "family") {
+          const reviewed = await reviewFamilyPermission({
+            config: this.config.permissionReview,
+            toolKind: params.toolCall.kind ?? "other",
+            detail,
+            contentText,
+            touchedPaths,
+          });
+          if (reviewed?.allow) {
+            const allowOption = choosePermissionOption(
+              params.options,
+              new Set<string>(["allow_once", "allow_always"]),
+            );
+            if (allowOption) {
+              decision = {
+                allowed: true,
+                reason: `allow family after model review: ${reviewed.reason}`,
+                optionId: allowOption.optionId,
+              };
+            }
+          } else if (reviewed?.reason) {
+            decision = {
+              ...decision,
+              reason: `${decision.reason}; ${reviewed.reason}`,
+            };
+          }
+        }
+
         this.lastPermissionDecisionBySession.set(
           params.sessionId,
           `${decision.reason}: ${detail}`,
