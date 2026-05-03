@@ -245,6 +245,17 @@ function extractPathsFromToolCallText(params) {
     const paths = snippets.flatMap((snippet) => extractAbsolutePathsFromText(snippet));
     return [...new Set(paths)];
 }
+function extractToolCallText(params) {
+    return (params.toolCall.content
+        ?.map((item) => item.type === "content" && item.content.type === "text"
+        ? item.content.text
+        : "")
+        .filter(Boolean)
+        .join("\n") ?? "");
+}
+function isBlockedExecuteText(text) {
+    return /\b(curl|wget|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|apt|apt-get|yum|dnf|brew|systemctl|service|mount|umount|docker|kubectl)\b/.test(text);
+}
 function choosePermissionOption(options, preferredKinds) {
     for (const option of options) {
         if (preferredKinds.has(option.kind)) {
@@ -298,21 +309,15 @@ function decidePermission(config, context, params) {
         }
     }
     if (kind === "execute") {
-        const contentText = params.toolCall.content
-            ?.map((item) => item.type === "content" && item.content.type === "text"
-            ? item.content.text
-            : "")
-            .join("\n")
-            .toLowerCase() ?? "";
-        const looksLocalProcessing = /(unzip\b|python\b|python3\b|node\b|pandoc\b|ffmpeg\b|magick\b|convert\b|file\b|ls\b|cat\b|grep\b|rg\b|find\b|sed\b)/.test(contentText);
-        if (looksLocalProcessing &&
-            touchedPaths.length > 0 &&
-            touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)))) {
+        const contentText = extractToolCallText(params).toLowerCase();
+        if (touchedPaths.length > 0 &&
+            touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root))) &&
+            !isBlockedExecuteText(contentText)) {
             const option = choosePermissionOption(params.options, allowKinds);
             if (option) {
                 return {
                     allowed: true,
-                    reason: "allow local processing command inside controlled workspace",
+                    reason: "allow execute inside controlled workspace",
                     optionId: option.optionId,
                 };
             }
