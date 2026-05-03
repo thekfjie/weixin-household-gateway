@@ -1410,14 +1410,16 @@ async function buildCodexReply(params: {
 function buildCodexErrorReply(params: {
   error: unknown;
   role: UserRole;
+  codexCommand?: string;
 }): string {
   const message = errorToRedactedMessage(params.error);
+  const codexCommand = params.codexCommand ?? "codex";
 
   if (params.role === "admin") {
     return [
       "Codex 调用失败了。",
       message,
-      "可以先在服务器上用同一个用户执行 `codex exec \"你好\"` 验证登录和非交互执行是否正常。",
+      `可以先在服务器上用同一个用户执行 \`${codexCommand} exec --skip-git-repo-check "你好"\` 验证登录和非交互执行是否正常。`,
     ].join("\n");
   }
 
@@ -1946,6 +1948,7 @@ export class WechatWorker {
         rawReply = buildCodexErrorReply({
           error,
           role: route.role,
+          codexCommand: this.options.config.codex[route.role].command,
         });
       }
     }
