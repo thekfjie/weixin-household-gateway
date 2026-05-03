@@ -159,7 +159,6 @@ function buildConfigToml(env: DotEnv): string {
         `[model_providers.${provider}]`,
         `name = ${tomlString(providerName)}`,
         `base_url = ${tomlString(baseUrl)}`,
-        `env_key = "OPENAI_API_KEY"`,
         `wire_api = ${tomlString(wireApi)}`,
         "requires_openai_auth = false",
         "",
@@ -266,7 +265,10 @@ function run(): void {
 
   if (authMode === "api_key") {
     backupFile(authPath);
-    writePrivateJson(authPath, { OPENAI_API_KEY: apiKey });
+    writePrivateJson(authPath, {
+      auth_mode: "apikey",
+      OPENAI_API_KEY: apiKey,
+    });
   }
 
   console.log("");
