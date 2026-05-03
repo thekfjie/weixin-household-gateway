@@ -31,6 +31,7 @@ import {
 import { resolveRole } from "../../router/index.js";
 import {
   createNextSession,
+  buildSessionId,
   buildPromptContext,
   ensureActiveSession,
   formatBeijingTime,
@@ -234,7 +235,7 @@ function buildCommandReply(params: {
             "/sessions 查看最近会话",
             "/recent 查看最近几条消息",
             "/summary 查看当前摘要",
-            "/new 或 /reset 重置当前对话上下文",
+            "/new /reset /clear 清空当前对话并开启新会话",
             "/file <文件路径> [说明] 发送允许目录里的服务器文件",
             "/files 查看最近可发送文件",
             "/accounts 查看已绑定微信账号",
@@ -248,7 +249,7 @@ function buildCommandReply(params: {
             "/memory 查看当前会话 memory",
             "/last 查看上一段对话",
             "/yesterday 查看昨天的上一段对话",
-            "/new 或 /reset 重置当前对话上下文",
+            "/new /reset /clear 清空当前对话并开启新会话",
           ].join("\n");
     case "/whoami":
       return [
@@ -377,8 +378,27 @@ function buildCommandReply(params: {
     }
     case "/new":
     case "/reset":
+    case "/clear": {
       params.database.saveSession({
         id: params.session.id,
+        wechatAccountId: params.session.wechatAccountId,
+        contactId: params.session.contactId,
+        role: params.session.role,
+        status: "archived",
+        summaryText: params.session.summaryText,
+        memoryJson: params.session.memoryJson,
+        contextToken: params.session.contextToken,
+        lastActiveAt: params.session.lastActiveAt,
+      });
+
+      const nextSessionId = buildSessionId(
+        params.session.wechatAccountId,
+        params.session.contactId,
+        crypto.randomUUID(),
+      );
+
+      params.database.saveSession({
+        id: nextSessionId,
         wechatAccountId: params.session.wechatAccountId,
         contactId: params.session.contactId,
         role: params.accountRole,
@@ -388,7 +408,8 @@ function buildCommandReply(params: {
         contextToken: params.session.contextToken,
         lastActiveAt: new Date().toISOString(),
       });
-      return "当前对话上下文已经重置，我们可以重新开始。";
+      return "当前对话已经清空，并且已经切到一个新的会话。我们可以重新开始。";
+    }
     default:
       return "暂不支持这个内建命令。";
   }
@@ -1512,7 +1533,11 @@ export class WechatWorker {
 
     if (parsedCommand) {
       try {
-        if (parsedCommand.name === "/new" || parsedCommand.name === "/reset") {
+        if (
+          parsedCommand.name === "/new" ||
+          parsedCommand.name === "/reset" ||
+          parsedCommand.name === "/clear"
+        ) {
           this.codexBackends[route.role].clearSession(activeSession.id);
         }
 

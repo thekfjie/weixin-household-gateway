@@ -67,7 +67,29 @@ export function buildCodexErrorReply(params: {
     ].join("\n");
   }
 
-  return "我这边调用助手时出了一点问题，先稍等一下再试。";
+  if (/outside controlled workspace|blocked execute|blocked read|blocked write/i.test(message)) {
+    return [
+      "这次没有执行成功。",
+      "原因：当前请求触发了权限限制。",
+      message,
+      "如果你只是要处理当前会话里的附件或工作区文件，可以换一种更收敛的做法再试；如果你确实需要更高权限，请让 admin 账号来执行。",
+    ].join("\n");
+  }
+
+  if (/permission|denied|not allowed|cancelled/i.test(message)) {
+    return [
+      "这次没有执行成功。",
+      "原因：当前请求被权限策略拒绝了。",
+      message,
+      "如果这是合理操作，可以让 admin 账号来执行，或者把任务限制在当前会话工作区内再试。",
+    ].join("\n");
+  }
+
+  return [
+    "这次没有执行成功。",
+    message,
+    "如果你愿意，可以换一种更小范围的做法再试一次。",
+  ].join("\n");
 }
 
 export function buildCommandErrorReply(params: {

@@ -4,6 +4,7 @@ exports.parseBuiltInCommand = parseBuiltInCommand;
 const COMMANDS = [
     "/new",
     "/reset",
+    "/clear",
     "/last",
     "/yesterday",
     "/memory",
