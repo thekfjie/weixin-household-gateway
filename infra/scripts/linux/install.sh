@@ -73,6 +73,22 @@ service_user_corepack_home() {
   printf '%s\n' "$(service_user_home)/.cache/node/corepack"
 }
 
+resolve_existing_codex_command() {
+  local managed_codex
+  managed_codex="$(service_user_pnpm_home)/codex"
+  if [[ -x "${managed_codex}" ]]; then
+    printf '%s\n' "${managed_codex}"
+    return 0
+  fi
+
+  if command -v codex >/dev/null 2>&1; then
+    command -v codex
+    return 0
+  fi
+
+  return 1
+}
+
 cleanup() {
   if [[ -n "${TMP_ENV_FILE}" && -f "${TMP_ENV_FILE}" ]]; then
     rm -f "${TMP_ENV_FILE}"
@@ -483,7 +499,7 @@ require_node_version() {
 }
 
 resolve_codex_command() {
-  printf '%s\n' "$(service_user_pnpm_home)/codex"
+  resolve_existing_codex_command || printf '%s\n' "$(service_user_pnpm_home)/codex"
 }
 
 command_is_available() {
@@ -739,8 +755,11 @@ write_env_file() {
   local target_file="$1"
   local admin_workspace="${DATA_DIR}/runtime/admin"
   local family_workspace="${DATA_DIR}/runtime/family"
+  local codex_home
   local codex_provider="OpenAI"
   local codex_provider_name="OpenAI"
+
+  codex_home="$(service_user_home)/.codex"
 
   if [[ -n "${CODEX_CLI_BASE_URL}" ]]; then
     codex_provider="openai_compat"
@@ -766,7 +785,7 @@ CODEX_ADMIN_BACKEND=acp
 CODEX_ADMIN_ACP_COMMAND=
 CODEX_ADMIN_ACP_ARGS=
 CODEX_ADMIN_ACP_AUTH_MODE=auto
-CODEX_ADMIN_HOME=
+CODEX_ADMIN_HOME=${codex_home}
 CODEX_ADMIN_MODE=full-auto
 CODEX_ADMIN_WORKSPACE=${admin_workspace}
 CODEX_ADMIN_ENV_MODE=inherit
@@ -778,7 +797,7 @@ CODEX_FAMILY_BACKEND=acp
 CODEX_FAMILY_ACP_COMMAND=
 CODEX_FAMILY_ACP_ARGS=
 CODEX_FAMILY_ACP_AUTH_MODE=auto
-CODEX_FAMILY_HOME=
+CODEX_FAMILY_HOME=${codex_home}
 CODEX_FAMILY_MODE=suggest
 CODEX_FAMILY_WORKSPACE=${family_workspace}
 CODEX_FAMILY_ENV_MODE=minimal
@@ -787,7 +806,7 @@ CODEX_FAMILY_ENV_PASSTHROUGH=
 CODEX_TIMEOUT_MS=180000
 
 CODEX_CLI_AUTH_MODE=${CODEX_CLI_AUTH_MODE}
-CODEX_CLI_HOME=
+CODEX_CLI_HOME=${codex_home}
 CODEX_CLI_PROVIDER=${codex_provider}
 CODEX_CLI_PROVIDER_NAME=${codex_provider_name}
 CODEX_CLI_BASE_URL=${CODEX_CLI_BASE_URL}
@@ -939,8 +958,11 @@ build_project() {
 run_node_as_service_user() {
   local script_path="$1"
   shift
+  local codex_home
   local codex_provider="OpenAI"
   local codex_provider_name="OpenAI"
+
+  codex_home="$(service_user_home)/.codex"
 
   if [[ -n "${CODEX_CLI_BASE_URL}" ]]; then
     codex_provider="openai_compat"
@@ -963,7 +985,7 @@ run_node_as_service_user() {
     "CODEX_ADMIN_ACP_COMMAND="
     "CODEX_ADMIN_ACP_ARGS="
     "CODEX_ADMIN_ACP_AUTH_MODE=auto"
-    "CODEX_ADMIN_HOME="
+    "CODEX_ADMIN_HOME=${codex_home}"
     "CODEX_ADMIN_MODE=full-auto"
     "CODEX_ADMIN_WORKSPACE=${DATA_DIR}/runtime/admin"
     "CODEX_ADMIN_ENV_MODE=inherit"
@@ -974,14 +996,14 @@ run_node_as_service_user() {
     "CODEX_FAMILY_ACP_COMMAND="
     "CODEX_FAMILY_ACP_ARGS="
     "CODEX_FAMILY_ACP_AUTH_MODE=auto"
-    "CODEX_FAMILY_HOME="
+    "CODEX_FAMILY_HOME=${codex_home}"
     "CODEX_FAMILY_MODE=suggest"
     "CODEX_FAMILY_WORKSPACE=${DATA_DIR}/runtime/family"
     "CODEX_FAMILY_ENV_MODE=minimal"
     "CODEX_FAMILY_ENV_PASSTHROUGH="
     "CODEX_TIMEOUT_MS=180000"
     "CODEX_CLI_AUTH_MODE=${CODEX_CLI_AUTH_MODE}"
-    "CODEX_CLI_HOME="
+    "CODEX_CLI_HOME=${codex_home}"
     "CODEX_CLI_PROVIDER=${codex_provider}"
     "CODEX_CLI_PROVIDER_NAME=${codex_provider_name}"
     "CODEX_CLI_BASE_URL=${CODEX_CLI_BASE_URL}"

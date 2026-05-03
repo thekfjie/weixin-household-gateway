@@ -118,6 +118,7 @@ node dist/apps/server/configure-codex.js --apply
 ```
 
 如果你之前已经安装过，但后来调整了 `CODEX_CLI_BASE_URL`、`CODEX_CLI_API_KEY` 或 provider 相关配置，也要重新执行这一步，更新服务用户的 `~/.codex/config.toml` / `auth.json`。
+如果执行后发现配置被写到了项目目录而不是 `~/.codex`，说明本地 `.env` 里的 `CODEX_CLI_HOME` / `CODEX_ADMIN_HOME` / `CODEX_FAMILY_HOME` 还没有同步到新版本，先重新运行安装器或手动修正后再执行一次 `configure-codex.js --apply`。
 
 这里建议把：
 
