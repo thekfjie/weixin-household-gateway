@@ -71,6 +71,16 @@ function readValue(env: DotEnv, name: string, fallback = ""): string {
   return process.env[name] ?? env[name] ?? fallback;
 }
 
+function readOptionalValue(env: DotEnv, name: string): string | undefined {
+  const value = process.env[name] ?? env[name];
+  if (value === undefined) {
+    return undefined;
+  }
+
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
 function readBool(env: DotEnv, name: string, fallback: boolean): boolean {
   const raw = readValue(env, name);
   if (!raw) {
@@ -200,6 +210,16 @@ function writePrivateJson(filePath: string, payload: unknown): void {
   }
 }
 
+function resolveCodexHome(env: DotEnv): string {
+  const configuredHome =
+    readOptionalValue(env, "CODEX_CLI_HOME") ??
+    readOptionalValue(env, "CODEX_ADMIN_HOME") ??
+    readOptionalValue(env, "CODEX_FAMILY_HOME") ??
+    process.env.CODEX_HOME;
+
+  return path.resolve(configuredHome ?? path.join(os.homedir(), ".codex"));
+}
+
 function run(): void {
   const args = process.argv.slice(2);
   if (args.includes("-h") || args.includes("--help")) {
@@ -212,9 +232,7 @@ function run(): void {
   const authMode = readAuthMode(env);
   const apiKey = readValue(env, "CODEX_CLI_API_KEY");
   const codexCommand = readValue(env, "CODEX_ADMIN_COMMAND", "codex");
-  const codexHome = path.resolve(
-    readValue(env, "CODEX_CLI_HOME", process.env.CODEX_HOME ?? path.join(os.homedir(), ".codex")),
-  );
+  const codexHome = resolveCodexHome(env);
   const configPath = path.join(codexHome, "config.toml");
   const authPath = path.join(codexHome, "auth.json");
   const configToml = buildConfigToml(env);
