@@ -29,6 +29,8 @@ CODEX_CLI_API_KEY=""
 CODEX_CLI_MODEL="gpt-5.5"
 CODEX_CLI_REVIEW_MODEL="gpt-5.5"
 CODEX_CLI_REASONING_EFFORT="high"
+CODEX_FAMILY_PERMISSION_REVIEW_ENABLED="true"
+CODEX_FAMILY_PERMISSION_REVIEW_MODEL="codex-auto-review"
 USER_MODE="current"
 SERVICE_USER="weixin-agent"
 SERVICE_GROUP="weixin-agent"
@@ -121,6 +123,8 @@ usage() {
       --codex-model MODEL           对话模型，默认 gpt-5.4
       --codex-review-model MODEL    压缩/回顾模型，默认 gpt-5.5
       --codex-reasoning-effort LVL  思考强度：low|medium|high|xhigh，默认 high
+      --family-permission-review-enabled BOOL  family 小模型权限审核 true|false，默认 true
+      --family-permission-review-model MODEL   family 小模型权限审核模型，默认 codex-auto-review
       --user-mode current|dedicated 服务用户模式，默认 current
       --service-user USER           dedicated 模式下的服务用户名
       --permission-mode MODE        none|limited|full sudo 策略，默认 full
@@ -446,6 +450,14 @@ parse_args() {
         CODEX_CLI_REASONING_EFFORT="$2"
         shift 2
         ;;
+      --family-permission-review-enabled)
+        CODEX_FAMILY_PERMISSION_REVIEW_ENABLED="$2"
+        shift 2
+        ;;
+      --family-permission-review-model)
+        CODEX_FAMILY_PERMISSION_REVIEW_MODEL="$2"
+        shift 2
+        ;;
       --user-mode)
         USER_MODE="$2"
         shift 2
@@ -663,6 +675,8 @@ configure_interactively() {
   CODEX_CLI_MODEL="$(prompt_default "Codex 对话模型" "${CODEX_CLI_MODEL}")"
   CODEX_CLI_REVIEW_MODEL="$(prompt_default "Codex 压缩/回顾模型" "${CODEX_CLI_REVIEW_MODEL}")"
   CODEX_CLI_REASONING_EFFORT="$(prompt_default "Codex 思考强度(low/medium/high/xhigh)" "${CODEX_CLI_REASONING_EFFORT}")"
+  CODEX_FAMILY_PERMISSION_REVIEW_ENABLED="$(prompt_default "family 小模型权限审核(true/false)" "${CODEX_FAMILY_PERMISSION_REVIEW_ENABLED}")"
+  CODEX_FAMILY_PERMISSION_REVIEW_MODEL="$(prompt_default "family 小模型权限审核模型" "${CODEX_FAMILY_PERMISSION_REVIEW_MODEL}")"
 
   if [[ "${YES}" -eq 0 ]]; then
     echo ""
@@ -809,6 +823,9 @@ CODEX_FAMILY_MODE=suggest
 CODEX_FAMILY_WORKSPACE=${family_workspace}
 CODEX_FAMILY_ENV_MODE=minimal
 CODEX_FAMILY_ENV_PASSTHROUGH=
+CODEX_FAMILY_PERMISSION_REVIEW_ENABLED=${CODEX_FAMILY_PERMISSION_REVIEW_ENABLED}
+CODEX_FAMILY_PERMISSION_REVIEW_MODEL=${CODEX_FAMILY_PERMISSION_REVIEW_MODEL}
+CODEX_FAMILY_PERMISSION_REVIEW_TIMEOUT_MS=8000
 
 CODEX_TIMEOUT_MS=180000
 
@@ -1008,6 +1025,9 @@ run_node_as_service_user() {
     "CODEX_FAMILY_WORKSPACE=${DATA_DIR}/runtime/family"
     "CODEX_FAMILY_ENV_MODE=minimal"
     "CODEX_FAMILY_ENV_PASSTHROUGH="
+    "CODEX_FAMILY_PERMISSION_REVIEW_ENABLED=${CODEX_FAMILY_PERMISSION_REVIEW_ENABLED}"
+    "CODEX_FAMILY_PERMISSION_REVIEW_MODEL=${CODEX_FAMILY_PERMISSION_REVIEW_MODEL}"
+    "CODEX_FAMILY_PERMISSION_REVIEW_TIMEOUT_MS=8000"
     "CODEX_TIMEOUT_MS=180000"
     "CODEX_CLI_AUTH_MODE=${CODEX_CLI_AUTH_MODE}"
     "CODEX_CLI_HOME=${codex_home}"
@@ -1264,6 +1284,8 @@ main() {
   echo "Codex 对话模型：${CODEX_CLI_MODEL}"
   echo "Codex 压缩/回顾模型：${CODEX_CLI_REVIEW_MODEL}"
   echo "Codex 思考强度：${CODEX_CLI_REASONING_EFFORT}"
+  echo "family 小模型权限审核：${CODEX_FAMILY_PERMISSION_REVIEW_ENABLED}"
+  echo "family 小模型权限审核模型：${CODEX_FAMILY_PERMISSION_REVIEW_MODEL}"
   echo "端口：${PORT}"
   echo "时区：${TIMEZONE}"
   echo "首次扫码角色：${LOGIN_ROLE}"

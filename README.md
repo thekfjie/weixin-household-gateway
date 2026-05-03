@@ -96,6 +96,8 @@ CODEX_CLI_API_KEY=sk-...
 CODEX_CLI_MODEL=gpt-5.5
 CODEX_CLI_REVIEW_MODEL=gpt-5.5
 CODEX_CLI_REASONING_EFFORT=high
+CODEX_FAMILY_PERMISSION_REVIEW_ENABLED=true
+CODEX_FAMILY_PERMISSION_REVIEW_MODEL=codex-auto-review
 CODEX_ADMIN_BACKEND=acp
 CODEX_FAMILY_BACKEND=acp
 ```
@@ -111,6 +113,8 @@ CODEX_CLI_API_KEY=sk-... \
 CODEX_CLI_MODEL=gpt-5.5 \
 CODEX_CLI_REVIEW_MODEL=gpt-5.5 \
 CODEX_CLI_REASONING_EFFORT=high \
+CODEX_FAMILY_PERMISSION_REVIEW_ENABLED=true \
+CODEX_FAMILY_PERMISSION_REVIEW_MODEL=codex-auto-review \
 USER_MODE=current \
 PERMISSION_MODE=full \
 LOGIN_ROLE=admin \
@@ -140,6 +144,8 @@ node dist/apps/server/configure-codex.js --apply
 - `CODEX_CLI_MODEL=gpt-5.5`
 - `CODEX_CLI_REVIEW_MODEL=gpt-5.5`
 - `CODEX_CLI_REASONING_EFFORT=high`
+- `CODEX_FAMILY_PERMISSION_REVIEW_ENABLED=true`
+- `CODEX_FAMILY_PERMISSION_REVIEW_MODEL=codex-auto-review`
 
 后续切换模型和思考强度，最简单的办法是改 `.env` 后重新生成 Codex 配置：
 
@@ -148,9 +154,16 @@ cd /opt/weixin-household-gateway
 sed -i 's/^CODEX_CLI_MODEL=.*/CODEX_CLI_MODEL=gpt-5.5/' .env
 sed -i 's/^CODEX_CLI_REVIEW_MODEL=.*/CODEX_CLI_REVIEW_MODEL=gpt-5.5/' .env
 sed -i 's/^CODEX_CLI_REASONING_EFFORT=.*/CODEX_CLI_REASONING_EFFORT=high/' .env
+sed -i 's/^CODEX_FAMILY_PERMISSION_REVIEW_ENABLED=.*/CODEX_FAMILY_PERMISSION_REVIEW_ENABLED=true/' .env
+sed -i 's/^CODEX_FAMILY_PERMISSION_REVIEW_MODEL=.*/CODEX_FAMILY_PERMISSION_REVIEW_MODEL=codex-auto-review/' .env
 node dist/apps/server/configure-codex.js --apply
 sudo systemctl restart weixin-household-gateway
 ```
+
+family 默认还会带一层“小模型权限审核”：
+- 先走程序里的快速权限规则
+- 命中可疑或本来会被拒绝的 family 权限请求，再交给 `CODEX_FAMILY_PERMISSION_REVIEW_MODEL`
+- 只有明显有害、明显越界、明显系统级风险才拒绝；普通办公、附件处理、文档/PPT/表格/图片处理尽量放行
 
 如果只是想全局切换，这样就够了。
 

@@ -375,7 +375,7 @@ export function loadConfig(): AppConfig {
         envPassthrough: readNameList("CODEX_ADMIN_ENV_PASSTHROUGH"),
         permissionReview: {
           enabled: false,
-          model: readOptionalEnv("CODEX_ADMIN_PERMISSION_REVIEW_MODEL", "gpt-5.5-mini"),
+          model: readOptionalEnv("CODEX_ADMIN_PERMISSION_REVIEW_MODEL", "codex-auto-review"),
           timeoutMs: readPositiveInteger("CODEX_ADMIN_PERMISSION_REVIEW_TIMEOUT_MS", 10_000),
         },
       },
@@ -408,7 +408,7 @@ export function loadConfig(): AppConfig {
         envPassthrough: readNameList("CODEX_FAMILY_ENV_PASSTHROUGH"),
         permissionReview: {
           enabled: readBoolean("CODEX_FAMILY_PERMISSION_REVIEW_ENABLED", true),
-          model: readOptionalEnv("CODEX_FAMILY_PERMISSION_REVIEW_MODEL", "gpt-5.5-mini"),
+          model: readOptionalEnv("CODEX_FAMILY_PERMISSION_REVIEW_MODEL", "codex-auto-review"),
           timeoutMs: readPositiveInteger("CODEX_FAMILY_PERMISSION_REVIEW_TIMEOUT_MS", 8_000),
         },
       },
