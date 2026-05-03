@@ -143,6 +143,7 @@ function buildCommandReply(params) {
                     "/last 查看上一段对话",
                     "/yesterday 查看昨天的上一段对话",
                     "/new /reset /clear 清空当前对话并开启新会话",
+                    "/file <outbox文件路径> [说明] 回传当前会话产出的成品文件",
                 ].join("\n");
         case "/whoami":
             return [
@@ -204,7 +205,11 @@ function buildCommandReply(params) {
                     : {}),
             });
         case "/files":
-            return buildFilesReply(params);
+            return buildFilesReply({
+                config: params.config,
+                role: params.role,
+                session: params.session,
+            });
         case "/summary":
             return params.session.summaryText.trim()
                 ? `当前摘要：${params.session.summaryText}`
@@ -426,8 +431,28 @@ function buildSessionsReply(params) {
     ].join("\n");
 }
 function buildFilesReply(params) {
+    if (params.role === "family") {
+        if (!params.session) {
+            return "当前会话还没有可回传的成品文件。";
+        }
+        const { outboxDir } = buildSessionWorkspacePaths({
+            config: params.config,
+            sessionId: params.session.id,
+        });
+        const files = node_fs_1.default.existsSync(outboxDir) ? listFilesForReply(outboxDir, 2) : [];
+        if (files.length === 0) {
+            return [
+                "当前会话 outbox 里还没有可回传的成品文件。",
+                `outbox：${outboxDir}`,
+            ].join("\n");
+        }
+        return [
+            "当前会话可回传文件：",
+            ...files.slice(0, 10).map((filePath) => filePath),
+        ].join("\n");
+    }
     if (params.role !== "admin") {
-        return "这个文件命令只对 admin 开放。";
+        return "这个文件命令暂时不可用。";
     }
     const files = [];
     for (const directory of params.config.fileSend.allowedDirs) {
@@ -585,9 +610,6 @@ function buildInboundAttachmentAckPlaceholders(attachments) {
     }));
 }
 async function handleFileCommand(params) {
-    if (params.role !== "admin") {
-        return "这个文件命令只对 admin 开放。";
-    }
     if (!params.config.familyPolicy.allowFileSend) {
         return "文件发送当前已被配置关闭。";
     }
@@ -609,7 +631,22 @@ async function handleFileCommand(params) {
     if (stat.size > params.config.fileSend.maxBytes) {
         throw new Error(`文件太大：${(0, reply_js_1.formatBytes)(stat.size)}，上限 ${(0, reply_js_1.formatBytes)(params.config.fileSend.maxBytes)}`);
     }
-    (0, index_js_3.assertFileAllowedForWechatCommand)(filePath, params.config.fileSend);
+    if (params.role === "family") {
+        const { outboxDir } = buildSessionWorkspacePaths({
+            config: params.config,
+            sessionId: params.session.id,
+        });
+        if (!isInsideDirectory(filePath, outboxDir)) {
+            return [
+                "family 当前只允许回传本次会话 outbox 里的成品文件。",
+                `当前会话 outbox：${outboxDir}`,
+                "如果你想让我把处理好的文件发回来，请先让我把成品写到 outbox，再让我发送。",
+            ].join("\n");
+        }
+    }
+    else {
+        (0, index_js_3.assertFileAllowedForWechatCommand)(filePath, params.config.fileSend);
+    }
     const caption = captionParts.join(" ").trim();
     const result = await (0, index_js_3.sendLocalFileToSession)({
         client: params.client,
@@ -734,7 +771,11 @@ function buildCodexBootstrapPrompt(params) {
             "前置信息：当前路由是 admin。",
             "如果用户明确要求发送服务器本地文件，且你知道绝对路径，可以只输出动作标记：[[send_file path=\"/absolute/path\" caption=\"可选说明\"]]。不要解释这个标记。",
         ].join("\n")
-        : "前置信息：当前路由是 family。";
+        : [
+            "前置信息：当前路由是 family。",
+            "如果要把处理好的成品文件发回给用户，只能发送当前会话 outbox 里的文件。",
+            "当你已经把成品写入 outbox 后，可以只输出动作标记：[[send_file path=\"/absolute/path\" caption=\"可选说明\"]]。",
+        ].join("\n");
     const sessionMemory = (0, index_js_6.parseSessionMemory)(params.session.memoryJson);
     const carryoverInstruction = sessionMemory.carryoverSummary
         ? [
@@ -1135,7 +1176,7 @@ class WechatWorker {
             return;
         }
         const parsedCommand = (0, index_js_1.parseBuiltInCommand)(inbound.text) ??
-            (route.role === "admin" ? (0, index_js_1.parseNaturalFileRequest)(inbound.text) : undefined);
+            (0, index_js_1.parseNaturalFileRequest)(inbound.text);
         const pendingAttachments = parsedCommand
             ? downloadedAttachments
             : [
