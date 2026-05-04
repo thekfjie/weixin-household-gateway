@@ -1,6 +1,7 @@
 # weixin-household-gateway
 
-家庭共享微信 AI 网关：家里人直接在微信里和 AI 聊天，管理员保留 `admin` 高权限身份。服务长期运行在 Linux 服务器上。
+家庭共享微信 AI 网关：支持多名用户在微信的 openclaw 里和 AI 聊天，管理员拥有 `admin` 高权限身份，其他用户只拥有`family`权限。
+本项目不会走复杂agent助手那一类（openclaw等），只是借用了codex cli的能力，然后把使用入口选在了常见的wx聊天中。
 
 ## 一键安装
 
@@ -80,37 +81,42 @@ bash infra/scripts/linux/uninstall.sh --yes
 ## 架构
 
 ```mermaid
-flowchart LR
-  DB["SQLite 持久化"]
-
-  subgraph Chat["微信消息面"]
-    A["微信用户"] --> B["iLink Transport"]
-    B --> C["Worker"]
-    C --> D["角色路由 admin/family"]
-    D --> E{"内建命令？"}
-    E -->|是| F["命令处理器"]
-    E -->|否| G["Codex 后端"]
-    G --> G1["ACP (默认)"]
-    G --> G2["CLI exec (回退)"]
-    F --> H["输出过滤 / 分段发送 / typing 续期"]
-    G1 --> H
-    G2 --> H
-    H --> A
+flowchart TB
+  subgraph Entry["接入层"]
+    direction LR
+    WX["微信用户"] --> IL["iLink Transport"]
+    WEB["浏览器 / 运维脚本"] --> HTTP["HTTP 管理端<br/>/ /healthz /readyz /api/*"]
   end
 
-  subgraph Admin["HTTP 管理面"]
-    I["/ /healthz /readyz"] --> J["HTTP 路由层"]
-    K["/api/logins"] --> J
-    L["/api/accounts"] --> J
-    J --> M["LoginManager"]
+  subgraph Core["核心编排层"]
+    direction TB
+    WORKER["WechatWorker"] --> SESSION["角色路由 + 会话管理<br/>admin / family"]
+    SESSION --> DECIDE{"内建命令？"}
+    DECIDE -->|是| CMD["命令处理器"]
+    DECIDE -->|否| CODEX["Codex 后端<br/>ACP 默认 / CLI 回退"]
+    CMD --> REPLY["输出过滤 + 分段回复 + Typing 续期"]
+    CODEX --> REPLY
   end
 
-  C --> DB
-  J --> DB
-  M --> B
+  subgraph Support["支撑层"]
+    direction LR
+    DB["SQLite<br/>账号 / 会话 / 游标"]
+    FILES["工作区 / 附件目录"]
+    LOGIN["LoginManager<br/>二维码登录"]
+  end
+
+  IL --> WORKER
+  REPLY --> IL
+  HTTP --> LOGIN
+  HTTP --> DB
+  LOGIN --> IL
+  SESSION --> DB
+  CODEX --> FILES
 ```
 
-HTTP 管理端的路由和登录状态管理现在集中在 `apps/server/src/http/`，入口文件只保留启动、日志和优雅退出。
+主链路现在收敛成“接入 -> 编排 -> 回复”一条线，HTTP 管理和存储能力单独放到旁路，便于快速看清消息从哪里进入、在哪里决策、最终怎么回到微信。
+
+HTTP 管理端的路由和登录状态管理集中在 `apps/server/src/http/`，入口文件只保留启动、日志和优雅退出。
 
 ## 目录结构
 
