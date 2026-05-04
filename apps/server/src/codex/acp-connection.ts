@@ -344,6 +344,9 @@ function extractToolCallText(params: RequestPermissionRequest): string {
 const FAMILY_BLOCKED_COMMANDS =
   /\b(curl|wget|ssh|scp|sftp|rsync|ftp|telnet|nc|ncat|apt|apt-get|yum|dnf|brew|systemctl|service|mount|umount|docker|kubectl|rm|dd|mkfs|fdisk|iptables|reboot|shutdown|halt|poweroff)\b/;
 
+const FAMILY_NEVER_REVIEW_COMMANDS =
+  /\b(sudo|su|doas|passwd|visudo|chown|chmod|systemctl|service|journalctl|mount|umount|docker|kubectl|reboot|shutdown|halt|poweroff|useradd|usermod|userdel)\b|\/etc\/(systemd|sudoers|sudoers\.d)\b|(^|[\/\s])uninstall(\.sh)?\b|(^|[\/\s])install(\.sh)?\b|rm\s+-rf\b/i;
+
 function isBlockedExecuteText(text: string, role: UserRole): boolean {
   if (role === "admin") {
     return false;
@@ -503,6 +506,21 @@ function shouldReviewDeniedFamilyPermission(params: {
   contentText: string;
   decisionReason: string;
 }): boolean {
+  if (
+    params.toolKind === "execute" &&
+    FAMILY_NEVER_REVIEW_COMMANDS.test(params.contentText)
+  ) {
+    return false;
+  }
+
+  if (
+    params.touchedPaths.some((item) =>
+      /^\/etc\/(systemd|sudoers|sudoers\.d)\b/i.test(item.replace(/\\/g, "/")),
+    )
+  ) {
+    return false;
+  }
+
   if (
     /blocked execute outside controlled workspace/i.test(params.decisionReason)
   ) {

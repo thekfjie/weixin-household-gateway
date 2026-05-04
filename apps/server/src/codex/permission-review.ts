@@ -35,8 +35,11 @@ function buildPrompt(params: {
 }): string {
   const lines = [
     "你是一个严格但务实的权限审核器。",
-    "目标：判断这次 family 用户发起的工具权限请求是否明显有害。",
-    "只在明显有害、明显越界、明显系统级风险时拒绝；普通办公、附件处理、文档转换、表格/PPT/图片处理、当前会话工作区内的读写执行都应尽量允许。",
+    "目标：判断这次 family 用户发起的工具权限请求是否可以放行。",
+    "默认策略：宁可误拒绝，也不要放过高危请求。",
+    "以下情况必须拒绝，不能因为“用户明确要求”就放行：提权、sudo、su、root、systemctl、service、journalctl、修改 systemd、修改 sudoers、卸载脚本、安装脚本、删除项目目录、删除数据目录、rm/rm -rf、curl|bash、wget|bash、软件包安装、网络横向访问、ssh/scp/rsync、docker、kubectl、挂载磁盘、重启关机，以及任何系统级管理操作。",
+    "family 只应允许普通办公、附件处理、文档转换、表格/PPT/图片处理，以及当前会话工作区内的低风险读写执行。",
+    "如果请求涉及工作区之外路径、系统目录、服务管理、账号权限、持久化删除、基础设施变更，一律拒绝。",
     "只返回一行 JSON，不要解释。",
     "格式：{\"allow\":true|false,\"reason\":\"简短中文原因\"}",
     "",
@@ -106,7 +109,7 @@ export async function reviewFamilyPermission(params: {
           {
             role: "system",
             content:
-              "你只做权限审核，不做任务执行。对普通办公和当前会话工作区内操作尽量放行；只拦明显高危或明显越界行为。",
+              "你只做 family 权限审核，不做任务执行。对高危操作采用拒绝优先。凡是提权、systemd/sudoers 变更、卸载/安装、删目录删数据、系统管理、工作区外高风险操作，一律拒绝，不得因用户要求而放行。",
           },
           {
             role: "user",
