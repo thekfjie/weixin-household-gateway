@@ -145,3 +145,7 @@ HTTP 管理端的路由和登录状态管理集中在 `apps/server/src/http/`，
 - [Codex 配置](docs/codex-setup.md)
 - [微信命令明细](docs/commands.md)
 - [Windows 本地测试](docs/windows-local-test.md)
+
+## 友链
+
+- [linux do社区](https://linux.do/)
