@@ -146,12 +146,12 @@ function buildConfigToml(env: DotEnv): string {
   const contextWindow = readPositiveInteger(
     env,
     "CODEX_CLI_CONTEXT_WINDOW",
-    1_000_000,
+    272_000,
   );
   const compactLimit = readPositiveInteger(
     env,
     "CODEX_CLI_AUTO_COMPACT_TOKEN_LIMIT",
-    900_000,
+    240_000,
   );
 
   const providerBlock = baseUrl
