@@ -14,7 +14,5 @@ export interface SessionSummary {
 
 export interface PromptContext {
   role: UserRole;
-  currentTimeText: string;
   assistantInstruction: string;
-  summaryBlock?: string;
 }
