@@ -7,10 +7,24 @@ export interface CodexProgressEvent {
 
 export type CodexResponseMode = "full_text" | "final_message_run";
 
+export type CodexInputPart =
+  | {
+      type: "text";
+      text: string;
+    }
+  | {
+      type: "image";
+      filePath: string;
+      mimeType: string;
+    };
+
 export interface CodexBackendRequest {
   conversationId: string;
   prompt: string;
   bootstrapPrompt?: string;
+  systemPrompt?: string;
+  inputParts?: CodexInputPart[];
+  promptCacheKey?: string;
   role: UserRole;
   additionalDirectories?: string[];
   readOnlyDirectories?: string[];

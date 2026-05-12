@@ -1,4 +1,5 @@
 export * from "./backend-types.js";
+export * from "./api-prompt.js";
 export * from "./build-command.js";
 export * from "./factory.js";
 export * from "./prompt-builder.js";

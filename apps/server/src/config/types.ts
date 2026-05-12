@@ -2,7 +2,7 @@ export type UserRole = "admin" | "family";
 
 export type CodexMode = "suggest" | "auto-edit" | "full-auto";
 export type CodexEnvMode = "inherit" | "minimal";
-export type CodexBackendKind = "cli" | "acp";
+export type CodexBackendKind = "cli" | "acp" | "api";
 export type CodexAcpAuthMode = "auto" | "env" | "none";
 export type CodexReasoningEffort = "low" | "medium" | "high" | "xhigh";
 
@@ -24,6 +24,10 @@ export interface CodexRuntimeConfig {
   acpCommand: string;
   acpArgs: string[];
   acpAuthMode: CodexAcpAuthMode;
+  apiBaseUrl?: string | undefined;
+  apiKey?: string | undefined;
+  apiModel: string;
+  apiPromptCacheKeyPrefix: string;
   codexHome?: string | undefined;
   mode: CodexMode;
   timeoutMs: number;

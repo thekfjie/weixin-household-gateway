@@ -16,7 +16,7 @@ const VALID_CODEX_MODES: readonly CodexMode[] = [
   "full-auto",
 ];
 const VALID_CODEX_ENV_MODES: readonly CodexEnvMode[] = ["inherit", "minimal"];
-const VALID_CODEX_BACKENDS: readonly CodexBackendKind[] = ["cli", "acp"];
+const VALID_CODEX_BACKENDS: readonly CodexBackendKind[] = ["cli", "acp", "api"];
 const VALID_CODEX_ACP_AUTH_MODES: readonly CodexAcpAuthMode[] = [
   "auto",
   "env",
@@ -216,6 +216,11 @@ function readOptionalPath(name: string): string | undefined {
   return raw ? path.resolve(raw) : undefined;
 }
 
+function readOptionalTrimmedEnv(name: string): string | undefined {
+  const raw = process.env[name]?.trim();
+  return raw || undefined;
+}
+
 function resolveDefaultCodexCommand(): string {
   return process.platform === "win32" ? "codex.cmd" : "codex";
 }
@@ -249,6 +254,9 @@ export function loadConfig(): AppConfig {
   const codexBackend = readBackend("CODEX_BACKEND", "acp");
   const codexAcpAuthMode = readAcpAuthMode("CODEX_ACP_AUTH_MODE", "auto");
   const codexTimeoutMs = readPositiveInteger("CODEX_TIMEOUT_MS", 180_000);
+  const codexApiBaseUrl = readOptionalTrimmedEnv("CODEX_API_BASE_URL");
+  const codexApiKey = readOptionalTrimmedEnv("CODEX_API_KEY");
+  const codexApiModel = readOptionalEnv("CODEX_API_MODEL", "gpt-5.5");
   const fileAllowedDirs = readPathList("FILE_SEND_ALLOWED_DIRS", [
     path.join(dataDir, "outbox"),
     path.join(dataDir, "inbox"),
@@ -302,6 +310,13 @@ export function loadConfig(): AppConfig {
           "CODEX_ADMIN_ACP_AUTH_MODE",
           codexAcpAuthMode,
         ),
+        apiBaseUrl: readOptionalTrimmedEnv("CODEX_ADMIN_API_BASE_URL") ?? codexApiBaseUrl,
+        apiKey: readOptionalTrimmedEnv("CODEX_ADMIN_API_KEY") ?? codexApiKey,
+        apiModel: readOptionalEnv("CODEX_ADMIN_API_MODEL", codexApiModel),
+        apiPromptCacheKeyPrefix: readOptionalEnv(
+          "CODEX_ADMIN_API_PROMPT_CACHE_KEY_PREFIX",
+          "wechat-admin",
+        ),
         codexHome: readOptionalPath("CODEX_ADMIN_HOME") ?? readOptionalPath("CODEX_CLI_HOME"),
         mode: adminMode,
         timeoutMs: readPositiveInteger(
@@ -334,6 +349,13 @@ export function loadConfig(): AppConfig {
         acpAuthMode: readAcpAuthMode(
           "CODEX_FAMILY_ACP_AUTH_MODE",
           codexAcpAuthMode,
+        ),
+        apiBaseUrl: readOptionalTrimmedEnv("CODEX_FAMILY_API_BASE_URL") ?? codexApiBaseUrl,
+        apiKey: readOptionalTrimmedEnv("CODEX_FAMILY_API_KEY") ?? codexApiKey,
+        apiModel: readOptionalEnv("CODEX_FAMILY_API_MODEL", codexApiModel),
+        apiPromptCacheKeyPrefix: readOptionalEnv(
+          "CODEX_FAMILY_API_PROMPT_CACHE_KEY_PREFIX",
+          "wechat-family",
         ),
         codexHome: readOptionalPath("CODEX_FAMILY_HOME") ?? readOptionalPath("CODEX_CLI_HOME"),
         mode: familyMode,

@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import {
   AppConfig,
+  CodexRuntimeConfig,
   isCodexReasoningEffort,
   UserRole,
 } from "../../config/index.js";
@@ -13,6 +14,7 @@ import {
   CodexBackend,
   CodexProgressEvent,
   CodexResponseMode,
+  buildApiSystemPrompt,
   buildCodexPromptSet,
   createCodexBackend,
 } from "../../codex/index.js";
@@ -25,6 +27,7 @@ import {
   ensureSessionWorkspaceDirs,
   ensureActiveSession,
   parseSessionMemory,
+  PendingInboundAttachment,
   stringifySessionMemory,
   estimateTextTokens,
   shouldRotateByThresholds,
@@ -57,6 +60,8 @@ import {
 import { withTypingIndicator } from "./typing.js";
 import { handleAssistantFileActions, handleFileCommand } from "./file-command.js";
 import { sleep } from "../../utils/index.js";
+import { buildApiInputParts } from "./api-input.js";
+import { decideFamilyBackend } from "./routing.js";
 
 function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -64,11 +69,13 @@ function buildMessageId(prefix: string): string {
 
 async function buildCodexReply(params: {
   backend: CodexBackend;
+  backendKind: CodexRuntimeConfig["backend"];
   config: AppConfig;
   database: AppDatabase;
   role: UserRole;
   session: SessionRecord;
   userText: string;
+  attachments: PendingInboundAttachment[];
   persistentContext: boolean;
   responseMode?: CodexResponseMode;
   onProgress?: (event: CodexProgressEvent) => void;
@@ -84,6 +91,16 @@ async function buildCodexReply(params: {
   const result = await params.backend.run({
     conversationId: params.session.id,
     prompt: promptSet.prompt,
+    ...(params.backendKind === "api"
+      ? {
+          systemPrompt: buildApiSystemPrompt(params.role),
+          inputParts: buildApiInputParts({
+            userText: promptSet.prompt,
+            attachments: params.attachments,
+          }),
+          promptCacheKey: `wechat:${params.role}:${params.session.id}`,
+        }
+      : {}),
     ...(promptSet.bootstrapPrompt
       ? { bootstrapPrompt: promptSet.bootstrapPrompt }
       : {}),
@@ -123,24 +140,33 @@ export class WechatWorker {
 
   private loopPromise: Promise<void> | undefined;
 
-  private codexBackends: Record<UserRole, CodexBackend>;
+  private codexBackends: Record<"admin" | "family-acp" | "family-api", CodexBackend>;
 
   constructor(private readonly options: WechatWorkerOptions) {
     this.codexBackends = {
       admin: createCodexBackend(
         this.buildRuntimeCodexConfig("admin"),
       ),
-      family: createCodexBackend(
-        this.buildRuntimeCodexConfig("family"),
+      "family-acp": createCodexBackend(
+        this.buildRuntimeCodexConfig("family", { backendOverride: "acp" }),
+      ),
+      "family-api": createCodexBackend(
+        this.buildRuntimeCodexConfig("family", { backendOverride: "api" }),
       ),
     };
   }
 
-  private buildRuntimeCodexConfig(role: UserRole) {
+  private buildRuntimeCodexConfig(
+    role: UserRole,
+    options?: { backendOverride?: CodexRuntimeConfig["backend"] },
+  ) {
     const baseConfig = this.options.config.codex[role];
     const settings = this.options.database.getCodexRoleSettings(role);
     return {
       ...baseConfig,
+      ...(options?.backendOverride
+        ? { backend: options.backendOverride }
+        : {}),
       ...(settings?.model || settings?.reasoningEffort
         ? {
             roleOverrides: {
@@ -156,9 +182,21 @@ export class WechatWorker {
   }
 
   private rebuildCodexBackend(role: UserRole): void {
-    this.codexBackends[role].dispose();
-    this.codexBackends[role] = createCodexBackend(
-      this.buildRuntimeCodexConfig(role),
+    if (role === "admin") {
+      this.codexBackends.admin.dispose();
+      this.codexBackends.admin = createCodexBackend(
+        this.buildRuntimeCodexConfig("admin"),
+      );
+      return;
+    }
+
+    this.codexBackends["family-acp"].dispose();
+    this.codexBackends["family-api"].dispose();
+    this.codexBackends["family-acp"] = createCodexBackend(
+      this.buildRuntimeCodexConfig("family", { backendOverride: "acp" }),
+    );
+    this.codexBackends["family-api"] = createCodexBackend(
+      this.buildRuntimeCodexConfig("family", { backendOverride: "api" }),
     );
   }
 
@@ -175,7 +213,48 @@ export class WechatWorker {
     this.running = false;
     await this.loopPromise;
     this.codexBackends.admin.dispose();
-    this.codexBackends.family.dispose();
+    this.codexBackends["family-acp"].dispose();
+    this.codexBackends["family-api"].dispose();
+  }
+
+  private getBackendForTurn(params: {
+    role: UserRole;
+    userText: string;
+    attachments: PendingInboundAttachment[];
+  }): {
+    backend: CodexBackend;
+    backendKind: CodexRuntimeConfig["backend"];
+  } {
+    if (params.role === "admin") {
+      return {
+        backend: this.codexBackends.admin,
+        backendKind: "acp",
+      };
+    }
+
+    const decision = decideFamilyBackend({
+      userText: params.userText,
+      attachments: params.attachments,
+    });
+
+    const familyApiConfig = this.buildRuntimeCodexConfig("family", {
+      backendOverride: "api",
+    });
+    const canUseFamilyApi = Boolean(
+      familyApiConfig.apiBaseUrl && familyApiConfig.apiKey,
+    );
+
+    if (decision.backend === "acp" || !canUseFamilyApi) {
+      return {
+        backend: this.codexBackends["family-acp"],
+        backendKind: "acp",
+      };
+    }
+
+    return {
+      backend: this.codexBackends["family-api"],
+      backendKind: "api",
+    };
   }
 
   private async runLoop(): Promise<void> {
@@ -449,7 +528,12 @@ export class WechatWorker {
           parsedCommand.name === "/reset" ||
           parsedCommand.name === "/clear"
         ) {
-          this.codexBackends[route.role].clearSession(activeSession.id);
+          if (route.role === "admin") {
+            this.codexBackends.admin.clearSession(activeSession.id);
+          } else {
+            this.codexBackends["family-acp"].clearSession(activeSession.id);
+            this.codexBackends["family-api"].clearSession(activeSession.id);
+          }
         }
 
         rawReply =
@@ -473,7 +557,8 @@ export class WechatWorker {
                 config: this.options.config,
                 onRoleModeChanged: () => {
                   this.codexBackends.admin.clearSession(activeSession.id);
-                  this.codexBackends.family.clearSession(activeSession.id);
+                  this.codexBackends["family-acp"].clearSession(activeSession.id);
+                  this.codexBackends["family-api"].clearSession(activeSession.id);
                 },
                 onCodexSettingsChanged: (changedRole) => {
                   this.rebuildCodexBackend(changedRole);
@@ -489,6 +574,13 @@ export class WechatWorker {
     } else {
       try {
         const progress: CodexProgressEvent = { phase: "thinking" };
+        const backendForTurn = this.getBackendForTurn({
+          role: route.role,
+          userText: inbound.text,
+          attachments: pendingAttachments,
+        });
+        const codexUserText =
+          backendForTurn.backendKind === "api" ? inbound.text : userTextForCodex;
         rawReply = await withTypingIndicator({
           client,
           toUserId: inbound.contactId,
@@ -504,17 +596,19 @@ export class WechatWorker {
             }),
           work: () =>
             buildCodexReply({
-              backend: this.codexBackends[route.role],
+              backend: backendForTurn.backend,
+              backendKind: backendForTurn.backendKind,
               config: this.options.config,
               database: this.options.database,
               role: route.role,
               session: sessionForReply,
-              userText: userTextForCodex,
+              userText: codexUserText,
+              attachments: pendingAttachments,
               persistentContext:
-                this.options.config.codex[route.role].backend === "acp",
+                backendForTurn.backendKind === "acp",
               responseMode:
                 route.role === "family" &&
-                this.options.config.codex[route.role].backend === "acp"
+                backendForTurn.backendKind === "acp"
                   ? "final_message_run"
                   : "full_text",
               onProgress: (event) => {
