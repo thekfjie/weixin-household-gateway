@@ -25,6 +25,7 @@ export interface CodexBackendRequest {
   systemPrompt?: string;
   inputParts?: CodexInputPart[];
   promptCacheKey?: string;
+  persistentSession?: boolean;
   role: UserRole;
   additionalDirectories?: string[];
   readOnlyDirectories?: string[];

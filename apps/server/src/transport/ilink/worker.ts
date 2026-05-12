@@ -60,8 +60,8 @@ import {
 import { withTypingIndicator } from "./typing.js";
 import { handleAssistantFileActions, handleFileCommand } from "./file-command.js";
 import { sleep } from "../../utils/index.js";
-import { buildApiInputParts } from "./api-input.js";
 import { decideFamilyBackend } from "./routing.js";
+import { buildApiInputParts } from "./api-input.js";
 
 function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -91,9 +91,11 @@ async function buildCodexReply(params: {
   const result = await params.backend.run({
     conversationId: params.session.id,
     prompt: promptSet.prompt,
+    ...(promptSet.systemPrompt ? { systemPrompt: promptSet.systemPrompt } : {}),
     ...(params.backendKind === "api"
       ? {
-          systemPrompt: buildApiSystemPrompt(params.role),
+          systemPrompt:
+            promptSet.systemPrompt ?? buildApiSystemPrompt(params.role),
           inputParts: buildApiInputParts({
             userText: promptSet.prompt,
             attachments: params.attachments,
@@ -104,6 +106,7 @@ async function buildCodexReply(params: {
     ...(promptSet.bootstrapPrompt
       ? { bootstrapPrompt: promptSet.bootstrapPrompt }
       : {}),
+    persistentSession: params.persistentContext,
     role: params.role,
     additionalDirectories: promptSet.additionalDirectories,
     readOnlyDirectories: promptSet.readOnlyDirectories,
@@ -224,11 +227,13 @@ export class WechatWorker {
   }): {
     backend: CodexBackend;
     backendKind: CodexRuntimeConfig["backend"];
+    persistentSession: boolean;
   } {
     if (params.role === "admin") {
       return {
         backend: this.codexBackends.admin,
         backendKind: "acp",
+        persistentSession: true,
       };
     }
 
@@ -248,12 +253,14 @@ export class WechatWorker {
       return {
         backend: this.codexBackends["family-acp"],
         backendKind: "acp",
+        persistentSession: false,
       };
     }
 
     return {
       backend: this.codexBackends["family-api"],
       backendKind: "api",
+      persistentSession: false,
     };
   }
 
@@ -604,8 +611,7 @@ export class WechatWorker {
               session: sessionForReply,
               userText: codexUserText,
               attachments: pendingAttachments,
-              persistentContext:
-                backendForTurn.backendKind === "acp",
+              persistentContext: backendForTurn.persistentSession,
               responseMode:
                 route.role === "family" &&
                 backendForTurn.backendKind === "acp"

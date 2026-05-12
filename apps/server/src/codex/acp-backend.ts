@@ -94,6 +94,7 @@ export class AcpCodexBackend implements CodexBackend {
       request.conversationId,
       conn,
       request.role,
+      request.persistentSession !== false,
       additionalDirectories,
       readOnlyDirectories,
     );
@@ -154,9 +155,34 @@ export class AcpCodexBackend implements CodexBackend {
     conversationId: string,
     conn: Awaited<ReturnType<AcpConnection["ensureReady"]>>,
     role: UserRole,
+    persistentSession: boolean,
     additionalDirectories: string[],
     readOnlyDirectories: string[],
   ): Promise<AcpSessionHandle> {
+    if (!persistentSession) {
+      const response = await withTimeout(
+        conn.newSession({
+          cwd: this.config.workspace,
+          mcpServers: [],
+          ...(additionalDirectories.length > 0 &&
+          this.connection.supportsAdditionalDirectories()
+            ? { additionalDirectories }
+            : {}),
+        }),
+        Math.min(this.config.timeoutMs, 60_000),
+        "ACP newSession timed out",
+      );
+      this.connection.setSessionPermissions(response.sessionId, {
+        role,
+        additionalDirectories,
+        readOnlyDirectories,
+      });
+      return {
+        sessionId: response.sessionId,
+        isFresh: true,
+      };
+    }
+
     const existing = this.sessions.get(conversationId);
     if (existing) {
       this.connection.setSessionPermissions(existing, {
