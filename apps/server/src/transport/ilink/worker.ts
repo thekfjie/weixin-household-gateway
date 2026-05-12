@@ -125,7 +125,9 @@ async function buildCodexReply(params: {
     session: params.session,
     userText: params.userText,
     persistentContext: params.persistentContext,
-    includeRecentTurns: params.includeRecentTurns,
+    ...(params.includeRecentTurns !== undefined
+      ? { includeRecentTurns: params.includeRecentTurns }
+      : {}),
   });
   const result = await params.backend.run({
     conversationId: params.session.id,
