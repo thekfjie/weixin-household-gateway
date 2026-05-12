@@ -67,6 +67,31 @@ function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
+function buildFamilyAcpHandoff(params: {
+  session: SessionRecord;
+  database: AppDatabase;
+  userText: string;
+  attachments: PendingInboundAttachment[];
+}): string {
+  const recentTurns = params.database
+    .listSessionMessages(params.session.id, 4)
+    .reverse()
+    .filter((message) => message.textContent?.trim())
+    .map((message) => {
+      const speaker = message.direction === "inbound" ? "User" : "Assistant";
+      return `${speaker}: ${message.textContent?.trim() ?? ""}`;
+    });
+
+  const attachmentSummary = buildAttachmentPromptBlock(params.attachments);
+  return [
+    recentTurns.length > 0 ? `Recent context:\n${recentTurns.join("\n")}` : "",
+    attachmentSummary ? `Files for this task:\n${attachmentSummary}` : "",
+    `Current request:\n${params.userText.trim()}`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 async function buildCodexReply(params: {
   backend: CodexBackend;
   backendKind: CodexRuntimeConfig["backend"];
@@ -587,7 +612,16 @@ export class WechatWorker {
           attachments: pendingAttachments,
         });
         const codexUserText =
-          backendForTurn.backendKind === "api" ? inbound.text : userTextForCodex;
+          route.role === "family" && backendForTurn.backendKind === "acp"
+            ? buildFamilyAcpHandoff({
+                session: sessionForReply,
+                database: this.options.database,
+                userText: inbound.text,
+                attachments: pendingAttachments,
+              })
+            : backendForTurn.backendKind === "api"
+              ? inbound.text
+              : userTextForCodex;
         rawReply = await withTypingIndicator({
           client,
           toUserId: inbound.contactId,
@@ -595,7 +629,7 @@ export class WechatWorker {
           typingRefreshMs: this.options.config.wechat.typingRefreshMs,
           thinkingNoticeIntervalMs:
             this.options.config.wechat.thinkingNoticeMs,
-          shouldSendThinkingNotice: () => progress.phase === "thinking",
+          shouldSendThinkingNotice: () => true,
           buildThinkingNoticeText: (elapsedSeconds) =>
             buildThinkingNoticeText({
               role: route.role,
