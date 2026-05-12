@@ -15,7 +15,7 @@ export async function withTypingIndicator<T>(params: {
   let refreshing = false;
   let refreshTimer: NodeJS.Timeout | undefined;
   let thinkingTimer: NodeJS.Timeout | undefined;
-  let thinkingNoticeCount = 0;
+  const thinkingStartedAt = Date.now();
   let sendingThinkingNotice = false;
 
   const sendTypingStatus = async (status: 1 | 2): Promise<void> => {
@@ -69,15 +69,15 @@ export async function withTypingIndicator<T>(params: {
         return;
       }
 
-      thinkingNoticeCount += 1;
       sendingThinkingNotice = true;
       sendTextMessage({
         client: params.client,
         toUserId: params.toUserId,
         contextToken: params.contextToken,
         text: params.buildThinkingNoticeText(
-          Math.round(
-            (thinkingNoticeCount * params.thinkingNoticeIntervalMs) / 1000,
+          Math.max(
+            1,
+            Math.round((Date.now() - thinkingStartedAt) / 1000),
           ),
         ),
       })
