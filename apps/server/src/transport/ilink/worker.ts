@@ -73,10 +73,22 @@ function buildFamilyAcpHandoff(params: {
   userText: string;
   attachments: PendingInboundAttachment[];
 }): string {
+  const normalizedUserText = params.userText.trim();
   const recentTurns = params.database
     .listSessionMessages(params.session.id, 4)
     .reverse()
     .filter((message) => message.textContent?.trim())
+    .filter((message, index, messages) => {
+      if (
+        index === messages.length - 1 &&
+        message.direction === "inbound" &&
+        message.textContent?.trim() === normalizedUserText
+      ) {
+        return false;
+      }
+
+      return true;
+    })
     .map((message) => {
       const speaker = message.direction === "inbound" ? "User" : "Assistant";
       return `${speaker}: ${message.textContent?.trim() ?? ""}`;
@@ -102,6 +114,7 @@ async function buildCodexReply(params: {
   userText: string;
   attachments: PendingInboundAttachment[];
   persistentContext: boolean;
+  includeRecentTurns?: boolean;
   responseMode?: CodexResponseMode;
   onProgress?: (event: CodexProgressEvent) => void;
 }): Promise<string> {
@@ -112,17 +125,20 @@ async function buildCodexReply(params: {
     session: params.session,
     userText: params.userText,
     persistentContext: params.persistentContext,
+    includeRecentTurns: params.includeRecentTurns,
   });
   const result = await params.backend.run({
     conversationId: params.session.id,
-    prompt: promptSet.prompt,
+    prompt: params.backendKind === "api" ? params.userText : promptSet.prompt,
     ...(promptSet.systemPrompt ? { systemPrompt: promptSet.systemPrompt } : {}),
     ...(params.backendKind === "api"
       ? {
           systemPrompt:
             promptSet.systemPrompt ?? buildApiSystemPrompt(params.role),
           inputParts: buildApiInputParts({
-            userText: promptSet.prompt,
+            database: params.database,
+            session: params.session,
+            userText: params.userText,
             attachments: params.attachments,
           }),
           promptCacheKey: `wechat:${params.role}:${params.session.id}`,
@@ -646,6 +662,11 @@ export class WechatWorker {
               userText: codexUserText,
               attachments: pendingAttachments,
               persistentContext: backendForTurn.persistentSession,
+              includeRecentTurns:
+                !(
+                  route.role === "family" &&
+                  backendForTurn.backendKind === "acp"
+                ),
               responseMode:
                 route.role === "family" &&
                 backendForTurn.backendKind === "acp"

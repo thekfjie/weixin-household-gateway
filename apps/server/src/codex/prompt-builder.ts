@@ -22,11 +22,25 @@ function buildSummary(params: {
 function buildRecentTurns(params: {
   database: AppDatabase;
   session: SessionRecord;
+  currentUserText?: string;
 }): string {
+  const normalizedCurrentUserText = params.currentUserText?.trim();
   const recentMessages = params.database
     .listSessionMessages(params.session.id, 8)
     .reverse()
     .filter((message) => message.textContent?.trim())
+    .filter((message, index, messages) => {
+      if (
+        normalizedCurrentUserText &&
+        index === messages.length - 1 &&
+        message.direction === "inbound" &&
+        message.textContent?.trim() === normalizedCurrentUserText
+      ) {
+        return false;
+      }
+
+      return true;
+    })
     .map((message) => {
       const speaker = message.direction === "inbound" ? "User" : "Assistant";
       return `${speaker}: ${message.textContent?.trim() ?? ""}`;
@@ -73,6 +87,7 @@ function buildUserPrompt(params: {
     const recentTurns = buildRecentTurns({
       database: params.database,
       session: params.session,
+      currentUserText: params.userText,
     });
     if (recentTurns) {
       sections.push(recentTurns);
@@ -116,6 +131,7 @@ export function buildCodexPromptSet(params: {
   session: SessionRecord;
   userText: string;
   persistentContext: boolean;
+  includeRecentTurns?: boolean;
 }): {
   prompt: string;
   bootstrapPrompt?: string;
@@ -135,7 +151,8 @@ export function buildCodexPromptSet(params: {
     database: params.database,
     session: params.session,
     userText: params.userText,
-    includeRecentTurns: !params.persistentContext,
+    includeRecentTurns:
+      params.includeRecentTurns ?? !params.persistentContext,
   });
   const bootstrapPrompt = params.persistentContext
     ? buildUserPrompt({

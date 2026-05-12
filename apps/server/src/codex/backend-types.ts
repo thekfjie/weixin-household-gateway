@@ -13,6 +13,11 @@ export type CodexInputPart =
       text: string;
     }
   | {
+      type: "message";
+      role: "user" | "assistant";
+      text: string;
+    }
+  | {
       type: "image";
       filePath: string;
       mimeType: string;

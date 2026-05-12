@@ -134,7 +134,7 @@ usage() {
       --codex-review-model MODEL    压缩/回顾模型，默认 gpt-5.5
       --codex-reasoning-effort LVL  思考强度：low|medium|high|xhigh，默认 high
       --family-permission-review-enabled BOOL  family 小模型权限审核 true|false，默认 true
-      --family-permission-review-model MODEL   family 小模型权限审核模型，默认 codex-auto-review
+      --family-permission-review-model MODEL   family 小模型权限审核模型，默认 gpt-5.4-mini
       --user-mode current|dedicated 服务用户模式，默认 current
       --service-user USER           dedicated 模式下的服务用户名
       --permission-mode MODE        none|limited|full sudo 策略，默认 full

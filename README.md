@@ -1,7 +1,7 @@
 # weixin-household-gateway
 
-家庭共享微信 AI 网关：支持多名用户在微信的 openclaw 里和 AI 聊天，管理员拥有 `admin` 高权限身份，其他用户只拥有`family`权限。
-本项目不会走复杂agent助手那一类（openclaw等），只是借用了codex cli的能力，然后把使用入口选在了常见的wx聊天中。
+家庭共享微信 AI 网关：支持多名用户在微信里和 AI 聊天，管理员拥有 `admin` 高权限身份，其他用户只拥有 `family` 权限。
+项目主打“微信聊天入口 + 本地可控后端编排”，不是把整套复杂 agent 产品直接搬进微信。
 
 ## 一键安装
 
@@ -66,6 +66,7 @@ journalctl -u weixin-household-gateway -f
 
 # 更新
 cd /opt/weixin-household-gateway && git pull && corepack pnpm build
+node dist/apps/server/configure-codex.js --apply
 sudo systemctl restart weixin-household-gateway
 
 # 备份 / 恢复
@@ -93,9 +94,14 @@ flowchart TB
     WORKER["WechatWorker"] --> SESSION["角色路由 + 会话管理<br/>admin / family"]
     SESSION --> DECIDE{"内建命令？"}
     DECIDE -->|是| CMD["命令处理器"]
-    DECIDE -->|否| CODEX["Codex 后端<br/>ACP 默认 / CLI 回退"]
+    DECIDE -->|否| ROUTE{"后端选择"}
+    ROUTE -->|family 普通聊天| API["Family API<br/>优先 /responses<br/>不支持回退 /chat/completions"]
+    ROUTE -->|family 复杂任务| FACP["Family ACP<br/>非持久会话"]
+    ROUTE -->|admin| AACP["Admin ACP<br/>持久会话"]
     CMD --> REPLY["输出过滤 + 分段回复 + Typing 续期"]
-    CODEX --> REPLY
+    API --> REPLY
+    FACP --> REPLY
+    AACP --> REPLY
   end
 
   subgraph Support["支撑层"]
@@ -111,10 +117,11 @@ flowchart TB
   HTTP --> DB
   LOGIN --> IL
   SESSION --> DB
-  CODEX --> FILES
+  FACP --> FILES
+  AACP --> FILES
 ```
 
-主链路现在收敛成“接入 -> 编排 -> 回复”一条线，HTTP 管理和存储能力单独放到旁路，便于快速看清消息从哪里进入、在哪里决策、最终怎么回到微信。
+主链路现在收敛成“接入 -> 编排 -> 回复”一条线，`family` 普通聊天优先走直连 API，复杂文件/命令任务再升级到非持久 ACP；`admin` 继续保留持久 ACP。
 
 HTTP 管理端的路由和登录状态管理集中在 `apps/server/src/http/`，入口文件只保留启动、日志和优雅退出。
 
@@ -132,7 +139,8 @@ HTTP 管理端的路由和登录状态管理集中在 `apps/server/src/http/`，
 ## 核心能力
 
 - 多微信账号，admin/family 分权
-- ACP 会话映射（支持跨重启恢复），CLI 作为回退
+- family 普通聊天优先直连 API，优先 `/responses`，不支持时回退 `/chat/completions`
+- family 复杂任务走非持久 ACP，admin 保留持久 ACP
 - 会话自动轮转（空闲/轮数/token/跨天）
 - 北京时间上下文锚点
 - family 输出过滤（隐藏路径、命令、内部信息）

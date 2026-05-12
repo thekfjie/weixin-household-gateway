@@ -259,9 +259,15 @@ export function loadConfig(): AppConfig {
   const codexAcpAuthMode = readAcpAuthMode("CODEX_ACP_AUTH_MODE", "auto");
   const codexTimeoutMs = readPositiveInteger("CODEX_TIMEOUT_MS", 180_000);
   const defaultChatModel = readDefaultChatModel();
-  const codexApiBaseUrl = readOptionalTrimmedEnv("CODEX_API_BASE_URL");
-  const codexApiKey = readOptionalTrimmedEnv("CODEX_API_KEY");
-  const codexApiModel = readOptionalEnv("CODEX_API_MODEL", defaultChatModel);
+  const sharedCliBaseUrl = readOptionalTrimmedEnv("CODEX_CLI_BASE_URL");
+  const sharedCliApiKey = readOptionalTrimmedEnv("CODEX_CLI_API_KEY");
+  const sharedCliModel = readOptionalTrimmedEnv("CODEX_CLI_MODEL");
+  const codexApiBaseUrl =
+    readOptionalTrimmedEnv("CODEX_API_BASE_URL") ?? sharedCliBaseUrl;
+  const codexApiKey =
+    readOptionalTrimmedEnv("CODEX_API_KEY") ?? sharedCliApiKey;
+  const codexApiModel =
+    readOptionalTrimmedEnv("CODEX_API_MODEL") ?? sharedCliModel ?? defaultChatModel;
   const fileAllowedDirs = readPathList("FILE_SEND_ALLOWED_DIRS", [
     path.join(dataDir, "outbox"),
     path.join(dataDir, "inbox"),
