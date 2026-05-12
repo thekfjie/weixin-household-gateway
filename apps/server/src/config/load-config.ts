@@ -244,6 +244,10 @@ function resolveDefaultCodexWorkspace(name: "admin" | "family"): string {
     : "./runtime/codex-family";
 }
 
+function readDefaultChatModel(): string {
+  return readOptionalEnv("CODEX_DEFAULT_MODEL", "gpt-5.5");
+}
+
 export function loadConfig(): AppConfig {
   loadDotEnvFile();
 
@@ -254,9 +258,10 @@ export function loadConfig(): AppConfig {
   const codexBackend = readBackend("CODEX_BACKEND", "acp");
   const codexAcpAuthMode = readAcpAuthMode("CODEX_ACP_AUTH_MODE", "auto");
   const codexTimeoutMs = readPositiveInteger("CODEX_TIMEOUT_MS", 180_000);
+  const defaultChatModel = readDefaultChatModel();
   const codexApiBaseUrl = readOptionalTrimmedEnv("CODEX_API_BASE_URL");
   const codexApiKey = readOptionalTrimmedEnv("CODEX_API_KEY");
-  const codexApiModel = readOptionalEnv("CODEX_API_MODEL", "gpt-5.5");
+  const codexApiModel = readOptionalEnv("CODEX_API_MODEL", defaultChatModel);
   const fileAllowedDirs = readPathList("FILE_SEND_ALLOWED_DIRS", [
     path.join(dataDir, "outbox"),
     path.join(dataDir, "inbox"),
@@ -333,7 +338,7 @@ export function loadConfig(): AppConfig {
         envPassthrough: readNameList("CODEX_ADMIN_ENV_PASSTHROUGH"),
         permissionReview: {
           enabled: false,
-          model: readOptionalEnv("CODEX_ADMIN_PERMISSION_REVIEW_MODEL", "codex-auto-review"),
+          model: readOptionalEnv("CODEX_ADMIN_PERMISSION_REVIEW_MODEL", "gpt-5.4-mini"),
           timeoutMs: readPositiveInteger("CODEX_ADMIN_PERMISSION_REVIEW_TIMEOUT_MS", 10_000),
         },
       },
@@ -373,7 +378,7 @@ export function loadConfig(): AppConfig {
         envPassthrough: readNameList("CODEX_FAMILY_ENV_PASSTHROUGH"),
         permissionReview: {
           enabled: readBoolean("CODEX_FAMILY_PERMISSION_REVIEW_ENABLED", true),
-          model: readOptionalEnv("CODEX_FAMILY_PERMISSION_REVIEW_MODEL", "codex-auto-review"),
+          model: readOptionalEnv("CODEX_FAMILY_PERMISSION_REVIEW_MODEL", "gpt-5.4-mini"),
           timeoutMs: readPositiveInteger("CODEX_FAMILY_PERMISSION_REVIEW_TIMEOUT_MS", 8_000),
         },
       },

@@ -297,6 +297,17 @@ async function run(): Promise<void> {
       `admin=${config.codex.admin.backend}, family=${config.codex.family.backend}`,
     ),
   );
+  results.push(
+    ok(
+      "Codex models",
+      [
+        `admin_chat=${config.codex.admin.apiModel}`,
+        `family_chat=${config.codex.family.apiModel}`,
+        `admin_review=${config.codex.admin.permissionReview?.model ?? "(disabled)"}`,
+        `family_review=${config.codex.family.permissionReview?.model ?? "(disabled)"}`,
+      ].join(", "),
+    ),
+  );
 
   try {
     const database = new AppDatabase(

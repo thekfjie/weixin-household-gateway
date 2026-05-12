@@ -134,7 +134,8 @@ function buildConfigToml(env: DotEnv): string {
     baseUrl ? "OpenAI-compatible" : "OpenAI",
   );
   const wireApi = readValue(env, "CODEX_CLI_WIRE_API", "responses");
-  const model = readValue(env, "CODEX_CLI_MODEL", "gpt-5.5");
+  const defaultModel = readValue(env, "CODEX_DEFAULT_MODEL", "gpt-5.5");
+  const model = readValue(env, "CODEX_CLI_MODEL", defaultModel);
   const reviewModel = readValue(env, "CODEX_CLI_REVIEW_MODEL", model);
   const reasoningEffort = readValue(env, "CODEX_CLI_REASONING_EFFORT", "high");
   const disableResponseStorage = readBool(
