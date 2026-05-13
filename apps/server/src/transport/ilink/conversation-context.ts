@@ -1,11 +1,12 @@
 import { AppDatabase, MessageRecord, SessionRecord } from "../../storage/index.js";
 import { parseSessionMemory } from "../../sessions/index.js";
 
-const FAMILY_API_CONTEXT_CHAR_BUDGET = 16_000;
-const FAMILY_API_CONTEXT_ENTRY_CHAR_BUDGET = 3_000;
-const FAMILY_ACP_NOTE_CHAR_BUDGET = 1_500;
+const FAMILY_API_CONTEXT_CHAR_BUDGET = 100_000;
+const FAMILY_API_CONTEXT_ENTRY_CHAR_BUDGET = 20_000;
+const FAMILY_ACP_NOTE_CHAR_BUDGET = 100_000;
 const FAMILY_SHORT_TAIL_MESSAGE_LIMIT = 6;
 const FAMILY_SHORT_TAIL_CHAR_BUDGET = 3_000;
+const FAMILY_API_CONTEXT_ENTRY_MARKER = "\nUser: ";
 
 function normalizeText(text: string): string {
   return text.replace(/\u0000/g, "").trim();
@@ -100,7 +101,13 @@ export function appendFamilyApiContext(params: {
     return entries;
   }
 
-  return entries.slice(entries.length - FAMILY_API_CONTEXT_CHAR_BUDGET).trimStart();
+  const tail = entries.slice(entries.length - FAMILY_API_CONTEXT_CHAR_BUDGET);
+  const firstEntryStart = tail.indexOf(FAMILY_API_CONTEXT_ENTRY_MARKER);
+  if (firstEntryStart >= 0) {
+    return tail.slice(firstEntryStart + 1).trimStart();
+  }
+
+  return tail.trimStart();
 }
 
 export function buildAcpTaskNote(params: {

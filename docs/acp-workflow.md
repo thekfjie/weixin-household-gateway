@@ -148,10 +148,12 @@ WECHAT_FAMILY_API_STREAMING_ENABLED=false
 上下文策略：
 
 - direct API 维护独立的 `familyApiContext`，不再直接扫描同一 session 的全部消息；
+- `familyApiContext` 约有 100k 字符预算，超出后优先按完整旧轮次裁剪，避免在一轮中间截断；
 - prompt cache key 按 `role + wechatAccountId + contactId` 生成，不随 session 轮转改变；
 - 当前 HTTP `/responses` 兼容接口不支持 `previous_response_id`，因此不依赖服务端连续上下文；
 - `family-acp` 非持久路径只带 deterministic carryover 和短尾巴，避免复杂附件任务塞入过长聊天历史；
-- ACP 完成后只把最后可见答案截成短 `lastAcpTaskNote` 交给 API 轨道，API 成功消费后清掉该 note。
+- ACP 完成后只把最后可见答案写入 `lastAcpTaskNote` 交给 API 轨道；该 note 也有 100k 字符预算，
+  API 成功消费后清掉该 note。
 
 deterministic carryover 不调用小模型，只由当前已有摘要、最近消息和相关文件名拼出。
 

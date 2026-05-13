@@ -15,7 +15,7 @@
 - `family` 普通聊天优先直连 API：
   - 优先 `/responses`；
   - 不支持时回退 `/chat/completions`；
-  - 支持带预算的历史上下文、稳定 prompt cache key 和图片/文本附件输入。
+  - 支持约 100k 字符预算的 family API 上下文轨道、稳定 prompt cache key 和图片/文本附件输入。
 - ACP 工具型后端：
   - `admin` 使用持久 ACP 会话；
   - `family` 使用非持久 ACP 会话；
@@ -111,7 +111,9 @@ iLink updates -> WechatWorker -> 角色/后端路由 -> Codex backend
 或空格处分割，找不到合适切点时才按上限切。
 
 `family-api` 维护独立的 API 聊天轨道，不把 ACP 工具任务的长过程直接混入 API
-上下文；ACP 完成后只留下最后可见答案生成的短 task note。prompt cache key 按
+上下文；这条轨道约有 100k 字符预算，超出后优先按完整旧轮次裁剪，尽量保持
+缓存前缀稳定。ACP 完成后只把最后可见答案作为 task note 交回 API 轨道，同样受
+100k 字符预算约束，避免复杂文件任务结束后把有效结论压得过短。prompt cache key 按
 账号和联系人稳定生成，避免新 session 直接打散缓存。当前兼容 HTTP `/responses`
 接口不支持 `previous_response_id` 连续上下文，所以项目不会依赖该字段。
 
