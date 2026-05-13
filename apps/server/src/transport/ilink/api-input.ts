@@ -2,7 +2,8 @@ import fs from "node:fs";
 import { inferMimeType } from "../../files/index.js";
 import { CodexInputPart } from "../../codex/index.js";
 import { PendingInboundAttachment } from "../../sessions/index.js";
-import { AppDatabase, SessionRecord } from "../../storage/index.js";
+import { SessionRecord } from "../../storage/index.js";
+import { buildFamilyApiContextBlock } from "./conversation-context.js";
 
 const MAX_ATTACHMENT_TEXT_CHARS = 8_000;
 
@@ -61,51 +62,22 @@ function buildAttachmentTextBlock(
   return blocks.join("\n\n");
 }
 
-function buildRecentMessageParts(params: {
-  database: AppDatabase;
-  session: SessionRecord;
-  currentUserText: string;
-}): CodexInputPart[] {
-  const normalizedCurrentUserText = normalizeText(params.currentUserText);
-  return params.database
-    .listSessionMessages(params.session.id, 8)
-    .reverse()
-    .filter((message) => message.textContent?.trim())
-    .filter((message, index, messages) => {
-      if (
-        normalizedCurrentUserText &&
-        index === messages.length - 1 &&
-        message.direction === "inbound" &&
-        normalizeText(message.textContent ?? "") === normalizedCurrentUserText
-      ) {
-        return false;
-      }
-
-      return true;
-    })
-    .map<CodexInputPart>((message) => ({
-      type: "message",
-      role: message.direction === "inbound" ? "user" : "assistant",
-      text: normalizeText(message.textContent ?? ""),
-    }))
-    .filter((part) => part.type === "message" && Boolean(part.text));
-}
-
 export function buildApiInputParts(params: {
-  database: AppDatabase;
   session: SessionRecord;
   userText: string;
   attachments: PendingInboundAttachment[];
 }): CodexInputPart[] {
   const parts: CodexInputPart[] = [];
   const attachmentTextBlock = buildAttachmentTextBlock(params.attachments);
-  parts.push(
-    ...buildRecentMessageParts({
-      database: params.database,
-      session: params.session,
-      currentUserText: params.userText,
-    }),
-  );
+  const contextBlock = buildFamilyApiContextBlock({
+    session: params.session,
+  });
+  if (contextBlock) {
+    parts.push({
+      type: "text",
+      text: contextBlock,
+    });
+  }
 
   const normalizedUserText = normalizeText(params.userText);
   if (normalizedUserText) {

@@ -5,7 +5,8 @@
 - `/help` 查看可用命令
 - `/time` 查看北京时间
 - `/whoami` 查看角色和会话信息
-- `/new` `/reset` `/clear` 重置当前对话
+- `/new` 开启新话题，保留轻量上下文
+- `/reset` `/clear` 彻底清空当前对话
 - `/last` 查看上一段对话
 - `/yesterday` 查看昨天的上一段对话
 - `/memory` 查看当前 memory 状态
@@ -38,3 +39,6 @@
 - `/mode` 只能查看当前模式，不能切到 `admin`
 - `/file <outbox文件路径> [说明]` 只允许回传当前会话 `outbox` 里的成品文件
 - `/output family-api-stream on|off` 开关直连 API 的提前分段发送
+
+`/memory` 会显示 `family_api_context_chars`、`last_acp_task_note_chars` 和
+上一轮 family 后端，方便排查 API/ACP 轨道是否按预期切换。

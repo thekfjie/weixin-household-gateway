@@ -62,6 +62,11 @@ import { handleAssistantFileActions, handleFileCommand } from "./file-command.js
 import { sleep } from "../../utils/index.js";
 import { decideFamilyBackend } from "./routing.js";
 import { buildApiInputParts } from "./api-input.js";
+import {
+  appendFamilyApiContext,
+  buildAcpTaskNote,
+  buildFamilyConversationContext,
+} from "./conversation-context.js";
 
 function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
@@ -128,6 +133,8 @@ function createProgressReplySender(params: {
   toUserId: string;
   contextToken: string;
   includeToolProgress: boolean;
+  maxProgressMessages: number;
+  minIntervalMs: number;
   filterText?: (text: string) => string;
 }): ProgressReplySender {
   let queue = Promise.resolve();
@@ -135,8 +142,8 @@ function createProgressReplySender(params: {
   let queuedCount = 0;
   const sentTexts: string[] = [];
   const queuedTexts: string[] = [];
-  const maxProgressMessages = 4;
-  const minIntervalMs = 8_000;
+  const maxProgressMessages = params.maxProgressMessages;
+  const minIntervalMs = params.minIntervalMs;
 
   const enqueue = (message: string): void => {
     const text = (params.filterText?.(message) ?? message).trim();
@@ -169,7 +176,7 @@ function createProgressReplySender(params: {
         sentTexts.push(text);
       })
       .catch((error) => {
-        console.warn("[worker] failed to send admin progress", error);
+        console.warn("[worker] failed to send progress reply", error);
       });
   };
 
@@ -352,30 +359,14 @@ function buildFamilyAcpHandoff(params: {
   userText: string;
   attachments: PendingInboundAttachment[];
 }): string {
-  const normalizedUserText = params.userText.trim();
-  const recentTurns = params.database
-    .listSessionMessages(params.session.id, 4)
-    .reverse()
-    .filter((message) => message.textContent?.trim())
-    .filter((message, index, messages) => {
-      if (
-        index === messages.length - 1 &&
-        message.direction === "inbound" &&
-        message.textContent?.trim() === normalizedUserText
-      ) {
-        return false;
-      }
-
-      return true;
-    })
-    .map((message) => {
-      const speaker = message.direction === "inbound" ? "User" : "Assistant";
-      return `${speaker}: ${message.textContent?.trim() ?? ""}`;
-    });
-
+  const conversationContext = buildFamilyConversationContext({
+    database: params.database,
+    session: params.session,
+    currentUserText: params.userText,
+  });
   const attachmentSummary = buildAttachmentPromptBlock(params.attachments);
   return [
-    recentTurns.length > 0 ? `Recent context:\n${recentTurns.join("\n")}` : "",
+    conversationContext,
     attachmentSummary ? `Files for this task:\n${attachmentSummary}` : "",
     `Current request:\n${params.userText.trim()}`,
   ]
@@ -418,12 +409,11 @@ async function buildCodexReply(params: {
           systemPrompt:
             promptSet.systemPrompt ?? buildApiSystemPrompt(params.role),
           inputParts: buildApiInputParts({
-            database: params.database,
             session: params.session,
             userText: params.userText,
             attachments: params.attachments,
           }),
-          promptCacheKey: `wechat:${params.role}:${params.session.id}`,
+          promptCacheKey: `wechat:${params.role}:${params.session.wechatAccountId}:${params.session.contactId}`,
         }
       : {}),
     ...(promptSet.bootstrapPrompt
@@ -853,6 +843,14 @@ export class WechatWorker {
     let rawReply: string;
     let progressReplySender: ProgressReplySender | undefined;
     let streamingReplySender: StreamingReplySender | undefined;
+    let backendForCompletedTurn:
+      | {
+          backendKind: CodexRuntimeConfig["backend"];
+          persistentSession: boolean;
+        }
+      | undefined;
+    let familyBackendReason: ReturnType<typeof decideFamilyBackend>["reason"] | undefined;
+    let codexTurnSucceeded = false;
 
     if (parsedCommand) {
       try {
@@ -912,6 +910,17 @@ export class WechatWorker {
           userText: inbound.text,
           attachments: pendingAttachments,
         });
+        backendForCompletedTurn = {
+          backendKind: backendForTurn.backendKind,
+          persistentSession: backendForTurn.persistentSession,
+        };
+        familyBackendReason =
+          route.role === "family"
+            ? decideFamilyBackend({
+                userText: inbound.text,
+                attachments: pendingAttachments,
+              }).reason
+            : undefined;
         const outputProgressEnabled = resolveOutputProgressEnabled({
           config: this.options.config,
           role: route.role,
@@ -928,6 +937,8 @@ export class WechatWorker {
                 toUserId: inbound.contactId,
                 contextToken: inbound.contextToken,
                 includeToolProgress: route.role === "admin",
+                maxProgressMessages: route.role === "admin" ? 20 : 4,
+                minIntervalMs: route.role === "admin" ? 15_000 : 8_000,
                 ...(route.role === "family"
                   ? {
                       filterText: (text) =>
@@ -1017,6 +1028,7 @@ export class WechatWorker {
           session: sessionForReply,
           role: route.role,
         });
+        codexTurnSucceeded = true;
       } catch (error) {
         console.error("[worker] codex reply failed", error);
         rawReply = buildCodexErrorReply({
@@ -1077,6 +1089,34 @@ export class WechatWorker {
     const latestSession =
       this.options.database.getSessionById(sessionForReply.id) ?? sessionForReply;
     const latestMemory = parseSessionMemory(latestSession.memoryJson);
+    const familyApiContext =
+      codexTurnSucceeded &&
+      route.role === "family" &&
+      backendForCompletedTurn?.backendKind === "api"
+        ? appendFamilyApiContext({
+            existingContext: latestMemory.familyApiContext,
+            userText: inbound.text,
+            assistantText: replyText,
+          })
+        : latestMemory.familyApiContext;
+    const lastAcpTaskNote =
+      codexTurnSucceeded &&
+      route.role === "family" &&
+      backendForCompletedTurn?.backendKind === "acp"
+        ? buildAcpTaskNote({
+            attachments: pendingAttachments,
+            finalText: replyText,
+          })
+        : codexTurnSucceeded && backendForCompletedTurn?.backendKind === "api"
+          ? undefined
+          : latestMemory.lastAcpTaskNote;
+    const {
+      familyApiContext: _previousFamilyApiContext,
+      lastAcpTaskNote: _previousLastAcpTaskNote,
+      lastFamilyBackend: _previousLastFamilyBackend,
+      lastFamilyBackendReason: _previousLastFamilyBackendReason,
+      ...nextMemoryBase
+    } = latestMemory;
     this.options.database.saveSession({
       id: sessionForReply.id,
       wechatAccountId: sessionForReply.wechatAccountId,
@@ -1085,7 +1125,18 @@ export class WechatWorker {
       status: latestSession.status,
       summaryText: latestSession.summaryText,
       memoryJson: stringifySessionMemory({
-        ...latestMemory,
+        ...nextMemoryBase,
+        ...(familyApiContext ? { familyApiContext } : {}),
+        ...(lastAcpTaskNote ? { lastAcpTaskNote } : {}),
+        ...(route.role === "family" && backendForCompletedTurn
+          ? {
+              lastFamilyBackend:
+                backendForCompletedTurn.backendKind === "acp" ? "acp" : "api",
+            }
+          : {}),
+        ...(familyBackendReason
+          ? { lastFamilyBackendReason: familyBackendReason }
+          : {}),
         turnCount:
           Math.max(latestMemory.turnCount ?? 0, sessionMemory.turnCount ?? 0) + 1,
         estimatedTokenCount:

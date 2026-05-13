@@ -65,27 +65,3 @@ export function parseAssistantFileAction(text: string):
     cleanedText: text.replace(match[0], "").trim(),
   };
 }
-
-export function detectPreviousSessionReference(
-  text: string,
-): "previous" | "yesterday" | undefined {
-  const normalized = text.replace(/\s+/g, "");
-
-  if (
-    /(昨天那个|昨天那次|昨天那份|昨天说的|昨天聊的|昨天做的|昨天发的|昨天提到的|前天那个|前天那次)/.test(
-      normalized,
-    )
-  ) {
-    return "yesterday";
-  }
-
-  if (
-    /(上一次|上回|上次|上一段|之前那个|前面的那个|之前那次|上个对话|刚才那个)/.test(
-      normalized,
-    )
-  ) {
-    return "previous";
-  }
-
-  return undefined;
-}

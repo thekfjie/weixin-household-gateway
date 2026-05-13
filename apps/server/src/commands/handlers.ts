@@ -12,11 +12,12 @@ import {
   buildSessionId,
   buildSessionWorkspacePaths,
   stringifySessionMemory,
+  buildDeterministicSessionSummary,
+  summarizeCarryoverContext,
   summarizeRecentMessagesInline,
 } from "../sessions/index.js";
 import type { SessionMemoryState } from "../sessions/index.js";
 import type { ParsedCommand } from "./types.js";
-import { detectPreviousSessionReference } from "./file-actions.js";
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -437,7 +438,7 @@ export function buildCommandReply(params: {
             "/sessions 查看最近会话",
             "/recent 查看最近几条消息",
             "/summary 查看当前摘要",
-            "/new /reset /clear 清空当前对话并开启新会话",
+            "/new 开启新话题，/reset /clear 彻底清空当前对话",
             "/file <文件路径> [说明] 发送允许目录里的服务器文件",
             "/files 查看最近可发送文件",
             "/accounts 查看已绑定微信账号",
@@ -452,7 +453,7 @@ export function buildCommandReply(params: {
             "/memory 查看当前会话 memory",
             "/last 查看上一段对话",
             "/yesterday 查看昨天的上一段对话",
-            "/new /reset /clear 清空当前对话并开启新会话",
+            "/new 开启新话题，/reset /clear 彻底清空当前对话",
             "/file <outbox文件路径> [说明] 回传当前会话产出的成品文件",
             "/output 查看或切换过程输出",
           ].join("\n");
@@ -548,6 +549,18 @@ export function buildCommandReply(params: {
       if (params.sessionMemory.carryoverSummary?.trim()) {
         parts.push(`carryover_summary=${params.sessionMemory.carryoverSummary}`);
       }
+      if (params.sessionMemory.familyApiContext?.trim()) {
+        parts.push(`family_api_context_chars=${params.sessionMemory.familyApiContext.length}`);
+      }
+      if (params.sessionMemory.lastAcpTaskNote?.trim()) {
+        parts.push(`last_acp_task_note_chars=${params.sessionMemory.lastAcpTaskNote.length}`);
+      }
+      if (params.sessionMemory.lastFamilyBackend) {
+        parts.push(`last_family_backend=${params.sessionMemory.lastFamilyBackend}`);
+      }
+      if (params.sessionMemory.lastFamilyBackendReason) {
+        parts.push(`last_family_backend_reason=${params.sessionMemory.lastFamilyBackendReason}`);
+      }
       return `当前 memory：\n${parts.join("\n")}`;
     }
     case "/last": {
@@ -584,13 +597,28 @@ export function buildCommandReply(params: {
     case "/new":
     case "/reset":
     case "/clear": {
+      const isHardClear = params.command.name !== "/new" || params.role !== "family";
+      const recentMessagesForCarryover = params.database
+        .listSessionMessages(params.session.id, 12)
+        .reverse();
+      const archivedSummary =
+        buildDeterministicSessionSummary({
+          session: params.session,
+          recentMessages: recentMessagesForCarryover,
+        }) || params.session.summaryText;
+      const carryoverSummary = isHardClear
+        ? ""
+        : summarizeCarryoverContext({
+            session: params.session,
+            recentMessages: recentMessagesForCarryover,
+          });
       params.database.saveSession({
         id: params.session.id,
         wechatAccountId: params.session.wechatAccountId,
         contactId: params.session.contactId,
         role: params.session.role,
         status: "archived",
-        summaryText: params.session.summaryText,
+        summaryText: archivedSummary,
         memoryJson: params.session.memoryJson,
         contextToken: params.session.contextToken,
         lastActiveAt: params.session.lastActiveAt,
@@ -606,54 +634,27 @@ export function buildCommandReply(params: {
         contactId: params.session.contactId,
         role: params.accountRole,
         status: "active",
-        summaryText: "",
-        memoryJson: stringifySessionMemory({}),
+        summaryText: isHardClear ? "" : archivedSummary,
+        memoryJson: stringifySessionMemory({
+          ...(params.sessionMemory.routeMode && !isHardClear
+            ? { routeMode: params.sessionMemory.routeMode }
+            : {}),
+          ...(carryoverSummary
+            ? {
+                carryoverSummary,
+                carryoverSourceSessionId: params.session.id,
+                carryoverSourceLastActiveAt: params.session.lastActiveAt,
+              }
+            : {}),
+        }),
         contextToken: params.session.contextToken,
         lastActiveAt: new Date().toISOString(),
       });
-      return "当前对话已经清空，并且已经切到一个新的会话。我们可以重新开始。";
+      return isHardClear
+        ? "当前对话已经彻底清空，并且已经切到一个新的会话。我们可以重新开始。"
+        : "已经开启新话题；我会保留一点上一段的轻量上下文，避免突然断片。要彻底清空请发 /reset 或 /clear。";
     }
     default:
       return "暂不支持这个内建命令。";
   }
-}
-
-export function buildPreviousSessionHint(params: {
-  database: AppDatabase;
-  session: SessionRecord;
-  userText: string;
-}): string | undefined {
-  const referenceKind = detectPreviousSessionReference(params.userText);
-  if (!referenceKind) {
-    return undefined;
-  }
-
-  const previous =
-    referenceKind === "yesterday"
-      ? findYesterdaySession({ database: params.database, session: params.session }) ??
-        findPreviousSession({ database: params.database, session: params.session })
-      : findPreviousSession({ database: params.database, session: params.session }) ??
-        findYesterdaySession({ database: params.database, session: params.session });
-
-  if (!previous) {
-    return undefined;
-  }
-
-  const recentMessages = params.database
-    .listSessionMessages(previous.id, 4)
-    .reverse();
-  const lines = [
-    referenceKind === "yesterday"
-      ? "前置信息：用户这次提到了昨天的那段内容，如相关可参考上一段对话信息。"
-      : "前置信息：用户这次提到了上一次/之前那段内容，如相关可参考上一段对话信息。",
-    `上一段对话时间：${previous.lastActiveAt}`,
-  ];
-  if (previous.summaryText.trim()) {
-    lines.push(`上一段对话摘要：${previous.summaryText.trim()}`);
-  }
-  const recentInline = summarizeRecentMessagesInline(recentMessages);
-  if (recentInline) {
-    lines.push(`上一段最近消息：${recentInline}`);
-  }
-  return lines.join("\n");
 }

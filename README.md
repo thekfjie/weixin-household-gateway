@@ -1,159 +1,251 @@
 # weixin-household-gateway
 
-家庭共享微信 AI 网关：支持多名用户在微信里和 AI 聊天，管理员拥有 `admin` 高权限身份，其他用户只拥有 `family` 权限。
-项目主打“微信聊天入口 + 本地可控后端编排”，不是把整套复杂 agent 产品直接搬进微信。
+本项目 `weixin-household-gateway` 是一个基于 TypeScript/Node.js 的微信家庭 AI 网关。
+它整合 iLink 微信消息轮询、角色路由、Codex 后端、本地文件工作区和适合微信聊天的输出策略，形成一个可部署的单服务。
 
-## 一键安装
+项目目标不是把完整网页 agent 产品照搬进微信，而是在微信这个消息环境里提供一个可靠、可控、分权的 AI 入口：
 
-用普通登录用户 SSH 到服务器（不要 `sudo su -`）：
+- `admin` 拥有持久 ACP 会话，适合运维、代码、文件和长任务。
+- `family` 默认走更安全的路径：普通聊天优先直连 API，复杂文件任务再升级到非持久 ACP，并受更严格的权限策略约束。
+
+## 项目能力
+
+- 多微信账号接入，支持 `admin` / `family` 角色分权。
+- iLink 轮询、typing 状态续期、文本回复、附件下载、文件回传。
+- `family` 普通聊天优先直连 API：
+  - 优先 `/responses`；
+  - 不支持时回退 `/chat/completions`；
+  - 支持带预算的历史上下文、稳定 prompt cache key 和图片/文本附件输入。
+- ACP 工具型后端：
+  - `admin` 使用持久 ACP 会话；
+  - `family` 使用非持久 ACP 会话；
+  - 收集 ACP status、工具进度、可见文本 run，并提取最终回答。
+- 微信友好的输出体验：
+  - 最终回答分段；
+  - 可配置 ACP 过程输出；
+  - 可配置 `family-api` 保守提前发送；
+  - `family` 输出过滤路径、命令片段和疑似内部推理文本。
+- 会话自动轮转：空闲时间、轮数、估算 token 和北京时间跨天。
+- SQLite 存储账号、会话、消息、附件和轮询游标。
+- 会话工作区：`inbox` 入站文件、`office` 中间文件、`outbox` 可回传成品。
+- 运维工具：doctor 自检、备份/恢复、账号设置、Codex 配置生成、文件发送。
+
+## 架构概览
+
+```mermaid
+flowchart TB
+  subgraph WeChat["微信 / iLink"]
+    USER["微信用户"] --> POLL["iLink 轮询"]
+    POLL --> INBOUND["入站消息归一化"]
+    OUTBOUND["回复与文件发送"] --> USER
+  end
+
+  subgraph Worker["WechatWorker"]
+    INBOUND --> SESSION["会话与角色解析"]
+    SESSION --> COMMAND{"内建命令？"}
+    COMMAND -->|是| CMD["命令处理器"]
+    COMMAND -->|否| ROUTE{"角色与后端路由"}
+    ROUTE -->|admin| ADMINACP["Admin ACP<br/>持久会话"]
+    ROUTE -->|family 普通聊天| FAPI["Family API<br/>直连"]
+    ROUTE -->|family 复杂任务| FACP["Family ACP<br/>非持久会话"]
+    ADMINACP --> REPLY["输出过滤 + 分段"]
+    FAPI --> REPLY
+    FACP --> REPLY
+    CMD --> REPLY
+    REPLY --> OUTBOUND
+  end
+
+  subgraph Support["支撑层"]
+    DB["SQLite"]
+    FILES["会话工作区"]
+    HTTP["HTTP health/login APIs"]
+    CODEX["Codex CLI / ACP / API"]
+  end
+
+  SESSION --> DB
+  CMD --> DB
+  ADMINACP --> CODEX
+  FAPI --> CODEX
+  FACP --> CODEX
+  ADMINACP --> FILES
+  FACP --> FILES
+  HTTP --> DB
+```
+
+主链路：
+
+```text
+iLink updates -> WechatWorker -> 角色/后端路由 -> Codex backend
+  -> 输出策略 -> iLink 消息发送 -> SQLite 会话/消息更新
+```
+
+## 后端路由
+
+| 角色/场景 | 默认后端 | 会话持久性 | 典型用途 |
+| --- | --- | --- | --- |
+| `admin` | ACP | 持久 | 运维、代码、多步骤工具任务 |
+| `family` 普通聊天 | API | 非持久 | 日常对话、轻量问答 |
+| `family` 复杂任务 | ACP | 非持久 | 压缩包、文档、复杂附件、工具任务 |
+
+`family` 普通文本和图片聊天优先走 direct API。压缩包、Office 文档等复杂附件会升级到 ACP，让 Codex 在受控工作区里处理文件。
+
+## 输出模型
+
+微信不支持原地 token 级流式刷新，所以项目使用微信原生的多消息体验：
+
+- 最终回答按 `WECHAT_REPLY_CHUNK_CHARS` 分段发送；
+- 过程输出指 Codex 对外可见的阶段性说明和工具调用进度；
+- `admin-acp` 默认开启过程输出；
+- `family-acp` 默认关闭过程输出；
+- `family-api` 提前分段默认关闭，可按会话开启；
+- 用户可用 `/output` 调整当前会话输出行为。
+
+| 模式 | 默认过程输出 | 30s 思考提示 | 过程/分段限制 |
+| --- | --- | --- | --- |
+| `admin-acp` | 开 | 关闭 | 最多 20 条过程消息，至少间隔 15 秒；发送 `visible_message_run` 和工具进度 |
+| `family-acp` | 关 | 开 | 默认不发 ACP 过程；开 `/output process on` 后最多 4 条，至少间隔 8 秒，只发可见文本块，不发工具进度 |
+| `family-api` | 早发默认关 | 开 | 开 `/output family-api-stream on` 后最多提前发 2 条，至少 60 字，至少间隔 2.5 秒，只在强边界切 |
+
+`family-api` 未开启早发时，会等 API 完整返回后再发最终回答；最终回答仍会按
+`WECHAT_REPLY_CHUNK_CHARS` 兜底分段，默认 1800 字符，优先在段落、换行、句末
+或空格处分割，找不到合适切点时才按上限切。
+
+`family-api` 维护独立的 API 聊天轨道，不把 ACP 工具任务的长过程直接混入 API
+上下文；ACP 完成后只留下最后可见答案生成的短 task note。prompt cache key 按
+账号和联系人稳定生成，避免新 session 直接打散缓存。当前兼容 HTTP `/responses`
+接口不支持 `previous_response_id` 连续上下文，所以项目不会依赖该字段。
+
+默认配置：
+
+```dotenv
+WECHAT_REPLY_CHUNK_CHARS=1800
+WECHAT_ADMIN_PROGRESS_ENABLED=true
+WECHAT_FAMILY_PROGRESS_ENABLED=false
+WECHAT_FAMILY_API_STREAMING_ENABLED=false
+```
+
+ACP 事件、`final_message_run`、过程输出限制和开发注意事项见
+[ACP 工作流](docs/acp-workflow.md)。
+
+## 目录结构
+
+```text
+apps/server/src/
+  codex/        Codex 后端、ACP 连接、ACP collector、API backend
+  commands/     微信内建命令
+  config/       环境变量驱动的运行配置
+  files/        MIME 推断和文件工具
+  http/         health、ready、登录与账号 API
+  policy/       family 输出过滤与敏感信息处理
+  router/       账号角色解析
+  sessions/     会话 memory、轮转、工作区路径和时间工具
+  storage/      SQLite schema 与数据库封装
+  transport/    iLink transport、worker、媒体和文件处理
+  utils/        通用工具
+
+docs/           运维与开发文档
+infra/          Linux 安装/卸载脚本和 systemd 集成
+```
+
+常见部署目录：
+
+```text
+/opt/weixin-household-gateway          项目代码和构建产物
+/var/lib/weixin-household-gateway      SQLite 数据、附件和工作区
+  inbox/                              入站文件
+  office/                             中间文件
+  outbox/                             可发回微信的成品文件
+~/.codex                              Codex CLI 配置和认证
+```
+
+## 安装
+
+建议使用普通登录用户安装，不要在 `sudo su -` 后安装。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/thekfjie/weixin-household-gateway/main/infra/scripts/linux/bootstrap.sh | bash
 ```
 
-安装器会拉代码到 `/opt/weixin-household-gateway`，检测环境并补装依赖，然后构建、写入 `.env` 和 systemd 服务。首次安装会停在终端二维码，扫码确认后继续启动。
-
-**无交互模式**（所有选项走默认值）：
+无交互安装示例：
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/thekfjie/weixin-household-gateway/main/infra/scripts/linux/bootstrap.sh | \
 BOOTSTRAP_YES=1 \
 CODEX_CLI_AUTH_MODE=api_key \
-CODEX_CLI_BASE_URL=https://你的第三方兼容服务/v1 \
+CODEX_CLI_BASE_URL=https://your-openai-compatible-endpoint/v1 \
 CODEX_CLI_API_KEY=sk-... \
 bash
 ```
 
-> 未提供完整 `BASE_URL/API_KEY` 时会自动回退到 `login` 模式。
+安装器会检测环境、安装运行依赖、构建服务、写入 `.env`、创建 systemd 服务，并
+在首次绑定时显示微信二维码。第一个扫码账号会成为 `admin`。
 
-## 快速开始
+## 开发
 
-### 1. 扫码绑定管理员
+要求：
 
-安装器首次运行时会在终端停下来，显示微信二维码。扫码确认后，这个账号会绑定为 `admin`。
+- Node.js `>=22.5.0`
+- pnpm `10.13.1`
 
-### 2. 配置 Codex
-
-安装器交互时会提示填入 API Key。安装完成后验证连通性：
+常用命令：
 
 ```bash
-cd /opt/weixin-household-gateway
+corepack enable
+pnpm install
+pnpm build
+pnpm check
+pnpm start
+```
+
+服务构建命令：
+
+```bash
+tsc -p apps/server/tsconfig.json
+```
+
+部署后的常用工具：
+
+```bash
 node dist/apps/server/doctor.js --acp-session
-```
-
-如果后续调整了 API 配置，重新生成 Codex CLI 配置：
-
-```bash
 node dist/apps/server/configure-codex.js --apply
-sudo systemctl restart weixin-household-gateway
-```
-
-### 3. 添加家人
-
-首次扫码账号默认是 `admin`。添加家人：
-
-```bash
 node dist/apps/server/setup.js family --force
-sudo systemctl restart weixin-household-gateway
+node dist/apps/server/backup.js
 ```
 
-### 4. 日常运维
+## 运维
 
 ```bash
-# 查看服务状态
 sudo systemctl status weixin-household-gateway
 journalctl -u weixin-household-gateway -f
 
-# 更新
-cd /opt/weixin-household-gateway && git pull && corepack pnpm build
+cd /opt/weixin-household-gateway
+git pull
+corepack pnpm build
 node dist/apps/server/configure-codex.js --apply
 sudo systemctl restart weixin-household-gateway
+```
 
-# 备份 / 恢复
+备份和恢复：
+
+```bash
 node dist/apps/server/backup.js
 node dist/apps/server/backup.js --restore /path/to/backup --yes
+```
 
-# 卸载（保留数据）
+卸载：
+
+```bash
 bash infra/scripts/linux/uninstall.sh --yes --keep-data
-# 彻底卸载
 bash infra/scripts/linux/uninstall.sh --yes
 ```
 
-## 架构
-
-```mermaid
-flowchart TB
-  subgraph Entry["接入层"]
-    direction LR
-    WX["微信用户"] --> IL["iLink Transport"]
-    WEB["浏览器 / 运维脚本"] --> HTTP["HTTP 管理端<br/>/ /healthz /readyz /api/*"]
-  end
-
-  subgraph Core["核心编排层"]
-    direction TB
-    WORKER["WechatWorker"] --> SESSION["角色路由 + 会话管理<br/>admin / family"]
-    SESSION --> DECIDE{"内建命令？"}
-    DECIDE -->|是| CMD["命令处理器"]
-    DECIDE -->|否| ROUTE{"后端选择"}
-    ROUTE -->|family 普通聊天| API["Family API<br/>优先 /responses<br/>不支持回退 /chat/completions"]
-    ROUTE -->|family 复杂任务| FACP["Family ACP<br/>非持久会话"]
-    ROUTE -->|admin| AACP["Admin ACP<br/>持久会话"]
-    CMD --> REPLY["输出过滤 + 分段回复 + Typing 续期"]
-    API --> REPLY
-    FACP --> REPLY
-    AACP --> REPLY
-  end
-
-  subgraph Support["支撑层"]
-    direction LR
-    DB["SQLite<br/>账号 / 会话 / 游标"]
-    FILES["工作区 / 附件目录"]
-    LOGIN["LoginManager<br/>二维码登录"]
-  end
-
-  IL --> WORKER
-  REPLY --> IL
-  HTTP --> LOGIN
-  HTTP --> DB
-  LOGIN --> IL
-  SESSION --> DB
-  FACP --> FILES
-  AACP --> FILES
-```
-
-主链路现在收敛成“接入 -> 编排 -> 回复”一条线，`family` 普通聊天优先走直连 API，复杂文件/命令任务再升级到非持久 ACP；`admin` 继续保留持久 ACP。
-
-HTTP 管理端的路由和登录状态管理集中在 `apps/server/src/http/`，入口文件只保留启动、日志和优雅退出。
-
-## 目录结构
-
-```text
-/opt/weixin-household-gateway          项目代码和构建产物
-/var/lib/weixin-household-gateway      数据（SQLite、附件、工作区文件）
-  ├── inbox/                           入站文件下载
-  ├── office/                          处理中间文件
-  └── outbox/                          成品文件（可发回微信）
-/home/<user>/.codex                    Codex 配置和认证
-```
-
-## 核心能力
-
-- 多微信账号，admin/family 分权
-- family 普通聊天优先直连 API，优先 `/responses`，不支持时回退 `/chat/completions`
-- family 复杂任务走非持久 ACP，admin 保留持久 ACP
-- 会话自动轮转（空闲/轮数/token/跨天）
-- 北京时间上下文锚点
-- family 输出过滤（隐藏路径、命令、内部信息）
-- 文件收发：入站下载解密、白名单发送、CDN 上传
-- 长回复分段、typing 续期、长耗时提示
-- doctor 自检、数据备份/恢复、安装前环境恢复
-
-## 更多文档
+## 相关文档
 
 - [Codex 配置](docs/codex-setup.md)
-- [微信命令明细](docs/commands.md)
+- [ACP 工作流](docs/acp-workflow.md)
+- [微信命令](docs/commands.md)
 - [Windows 本地测试](docs/windows-local-test.md)
 
-## 友链
+## 友链/社区
 
-- [linux do社区](https://linux.do/)
+- [linux.do](https://linux.do/)

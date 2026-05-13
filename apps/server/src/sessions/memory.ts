@@ -7,6 +7,10 @@ export interface SessionMemoryState {
   carryoverSummary?: string;
   carryoverSourceSessionId?: string;
   carryoverSourceLastActiveAt?: string;
+  familyApiContext?: string;
+  lastAcpTaskNote?: string;
+  lastFamilyBackend?: "api" | "acp";
+  lastFamilyBackendReason?: string;
   pendingInboundAttachments?: PendingInboundAttachment[];
   outputProgressEnabled?: boolean;
   familyApiStreamingEnabled?: boolean;
@@ -90,6 +94,18 @@ export function parseSessionMemory(memoryJson: string): SessionMemoryState {
         : {}),
       ...(typeof parsed.carryoverSourceLastActiveAt === "string"
         ? { carryoverSourceLastActiveAt: parsed.carryoverSourceLastActiveAt }
+        : {}),
+      ...(typeof parsed.familyApiContext === "string"
+        ? { familyApiContext: parsed.familyApiContext }
+        : {}),
+      ...(typeof parsed.lastAcpTaskNote === "string"
+        ? { lastAcpTaskNote: parsed.lastAcpTaskNote }
+        : {}),
+      ...(parsed.lastFamilyBackend === "api" || parsed.lastFamilyBackend === "acp"
+        ? { lastFamilyBackend: parsed.lastFamilyBackend }
+        : {}),
+      ...(typeof parsed.lastFamilyBackendReason === "string"
+        ? { lastFamilyBackendReason: parsed.lastFamilyBackendReason }
         : {}),
       ...(Array.isArray(parsed.pendingInboundAttachments)
         ? {

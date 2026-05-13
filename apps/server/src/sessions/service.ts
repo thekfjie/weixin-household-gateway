@@ -73,7 +73,7 @@ export function ensureActiveSession(params: {
       status: existing.status,
       summaryText: existing.summaryText,
       memoryJson: existing.memoryJson,
-      lastActiveAt: nowIso(),
+      lastActiveAt: existing.lastActiveAt,
     });
   }
 
