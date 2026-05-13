@@ -64,6 +64,9 @@ export interface WechatConfig {
   typingRefreshMs: number;
   thinkingNoticeMs: number;
   replyChunkChars: number;
+  adminProgressEnabled: boolean;
+  familyProgressEnabled: boolean;
+  familyApiStreamingEnabled: boolean;
 }
 
 export interface SessionConfig {

@@ -102,10 +102,13 @@ export class AcpCodexBackend implements CodexBackend {
       ...(request.onProgress ? { onProgress: request.onProgress } : {}),
       ...(request.responseMode ? { responseMode: request.responseMode } : {}),
     });
-    const promptText =
+    const turnPromptText =
       session.isFresh && request.bootstrapPrompt
         ? request.bootstrapPrompt
         : request.prompt;
+    const promptText = [request.systemPrompt, turnPromptText]
+      .filter(Boolean)
+      .join("\n\n");
     const prompt: ContentBlock[] = [
       {
         type: "text",

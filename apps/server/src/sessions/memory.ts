@@ -8,6 +8,8 @@ export interface SessionMemoryState {
   carryoverSourceSessionId?: string;
   carryoverSourceLastActiveAt?: string;
   pendingInboundAttachments?: PendingInboundAttachment[];
+  outputProgressEnabled?: boolean;
+  familyApiStreamingEnabled?: boolean;
 }
 
 export interface PendingInboundAttachment {
@@ -97,6 +99,12 @@ export function parseSessionMemory(memoryJson: string): SessionMemoryState {
                 (item): item is PendingInboundAttachment => Boolean(item),
               ),
           }
+        : {}),
+      ...(typeof parsed.outputProgressEnabled === "boolean"
+        ? { outputProgressEnabled: parsed.outputProgressEnabled }
+        : {}),
+      ...(typeof parsed.familyApiStreamingEnabled === "boolean"
+        ? { familyApiStreamingEnabled: parsed.familyApiStreamingEnabled }
         : {}),
     };
   } catch {

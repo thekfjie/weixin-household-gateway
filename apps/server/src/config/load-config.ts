@@ -298,6 +298,12 @@ export function loadConfig(): AppConfig {
         30_000,
       ),
       replyChunkChars: readNonNegativeInteger("WECHAT_REPLY_CHUNK_CHARS", 1800),
+      adminProgressEnabled: readBoolean("WECHAT_ADMIN_PROGRESS_ENABLED", true),
+      familyProgressEnabled: readBoolean("WECHAT_FAMILY_PROGRESS_ENABLED", false),
+      familyApiStreamingEnabled: readBoolean(
+        "WECHAT_FAMILY_API_STREAMING_ENABLED",
+        false,
+      ),
     },
     session: {
       rotateIdleHours: readPositiveInteger("SESSION_ROTATE_IDLE_HOURS", 24),

@@ -67,10 +67,27 @@ function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-interface AdminProgressSender {
-  handle(event: CodexProgressEvent): void;
-  flush(): Promise<void>;
-  removeAlreadySentText(text: string): string;
+function resolveOutputProgressEnabled(params: {
+  config: AppConfig;
+  role: UserRole;
+  sessionMemory: ReturnType<typeof parseSessionMemory>;
+}): boolean {
+  return (
+    params.sessionMemory.outputProgressEnabled ??
+    (params.role === "admin"
+      ? params.config.wechat.adminProgressEnabled
+      : params.config.wechat.familyProgressEnabled)
+  );
+}
+
+function resolveFamilyApiStreamingEnabled(params: {
+  config: AppConfig;
+  sessionMemory: ReturnType<typeof parseSessionMemory>;
+}): boolean {
+  return (
+    params.sessionMemory.familyApiStreamingEnabled ??
+    params.config.wechat.familyApiStreamingEnabled
+  );
 }
 
 interface StreamingReplySender {
@@ -80,22 +97,54 @@ interface StreamingReplySender {
   removeAlreadySentText(text: string): string;
 }
 
-function createAdminProgressSender(params: {
+interface ProgressReplySender {
+  handle(event: CodexProgressEvent): void;
+  flush(): Promise<void>;
+  removeAlreadySentText(text: string): string;
+}
+
+function normalizeForDuplicateCheck(text: string): string {
+  return text.replace(/\s+/g, "").trim();
+}
+
+function isDuplicateOrContainedText(text: string, previousTexts: string[]): boolean {
+  const normalizedText = normalizeForDuplicateCheck(text);
+  if (!normalizedText) {
+    return true;
+  }
+
+  return previousTexts.some((previousText) => {
+    const normalizedPrevious = normalizeForDuplicateCheck(previousText);
+    return (
+      normalizedPrevious === normalizedText ||
+      normalizedPrevious.includes(normalizedText) ||
+      normalizedText.includes(normalizedPrevious)
+    );
+  });
+}
+
+function createProgressReplySender(params: {
   client: ILinkApiClient;
   toUserId: string;
   contextToken: string;
-}): AdminProgressSender {
+  includeToolProgress: boolean;
+  filterText?: (text: string) => string;
+}): ProgressReplySender {
   let queue = Promise.resolve();
   let lastSentAt = 0;
   let queuedCount = 0;
-  let lastMessage = "";
   const sentTexts: string[] = [];
+  const queuedTexts: string[] = [];
   const maxProgressMessages = 4;
   const minIntervalMs = 8_000;
 
   const enqueue = (message: string): void => {
-    const text = message.trim();
-    if (!text || text === lastMessage || queuedCount >= maxProgressMessages) {
+    const text = (params.filterText?.(message) ?? message).trim();
+    if (
+      !text ||
+      queuedCount >= maxProgressMessages ||
+      isDuplicateOrContainedText(text, queuedTexts)
+    ) {
       return;
     }
 
@@ -104,9 +153,9 @@ function createAdminProgressSender(params: {
       return;
     }
 
-    lastMessage = text;
     lastSentAt = now;
     queuedCount += 1;
+    queuedTexts.push(text);
     queue = queue
       .then(() =>
         sendTextMessage({
@@ -135,7 +184,11 @@ function createAdminProgressSender(params: {
         return;
       }
 
-      if (event.phase === "tool_progress" && event.message) {
+      if (
+        params.includeToolProgress &&
+        event.phase === "tool_progress" &&
+        event.message
+      ) {
         enqueue(event.message);
       }
     },
@@ -170,11 +223,12 @@ function createFamilyApiStreamingSender(params: {
   let queuedCount = 0;
   let sawInternalAction = false;
   const sentTexts: string[] = [];
-  const maxEarlyMessages = 4;
-  const minFlushChars = 80;
-  const maxFlushChars = 220;
+  const queuedTexts: string[] = [];
+  const maxEarlyMessages = 2;
+  const minFlushChars = 60;
   const minIntervalMs = 2_500;
   const sentenceEndPattern = /[。！？!?]\s*$/;
+  const listItemPattern = /^\s*(?:[-*+•]|\d+[.)、]|[一二三四五六七八九十]+[、.])\s+/;
 
   const send = (text: string): void => {
     if (sawInternalAction || text.includes("[[")) {
@@ -183,11 +237,16 @@ function createFamilyApiStreamingSender(params: {
     }
 
     const cleanText = filterFamilyOutput(text, params.config.familyPolicy);
-    if (!cleanText || queuedCount >= maxEarlyMessages) {
+    if (
+      !cleanText ||
+      queuedCount >= maxEarlyMessages ||
+      isDuplicateOrContainedText(cleanText, queuedTexts)
+    ) {
       return;
     }
 
     queuedCount += 1;
+    queuedTexts.push(cleanText);
     queue = queue
       .then(() =>
         sendTextMessage({
@@ -206,22 +265,28 @@ function createFamilyApiStreamingSender(params: {
   };
 
   const findCutIndex = (text: string): number => {
-    const limit = Math.min(text.length, maxFlushChars);
-    const window = text.slice(0, limit);
-    const candidates = [
-      window.lastIndexOf("\n\n"),
-      window.lastIndexOf("\n"),
-      window.lastIndexOf("。"),
-      window.lastIndexOf("！"),
-      window.lastIndexOf("？"),
-      window.lastIndexOf("!"),
-      window.lastIndexOf("?"),
-    ].filter((index) => index >= minFlushChars);
-    if (candidates.length > 0) {
-      return Math.max(...candidates) + 1;
+    const trimmed = text.trimEnd();
+    if (trimmed.length < minFlushChars) {
+      return 0;
     }
 
-    return text.length >= maxFlushChars ? maxFlushChars : 0;
+    const paragraphIndex = trimmed.lastIndexOf("\n\n");
+    if (paragraphIndex >= minFlushChars) {
+      return paragraphIndex + 2;
+    }
+
+    const lineIndex = trimmed.lastIndexOf("\n");
+    if (lineIndex >= minFlushChars) {
+      const beforeLine = trimmed.slice(0, lineIndex).split("\n").pop() ?? "";
+      if (listItemPattern.test(beforeLine) || sentenceEndPattern.test(beforeLine)) {
+        return lineIndex + 1;
+      }
+    }
+
+    const sentenceMatch = /[。！？!?](?=\s*$)/.exec(trimmed);
+    return sentenceMatch && sentenceMatch.index + 1 >= minFlushChars
+      ? sentenceMatch.index + 1
+      : 0;
   };
 
   const maybeFlush = (force = false): void => {
@@ -232,8 +297,7 @@ function createFamilyApiStreamingSender(params: {
     const now = Date.now();
     const enoughTime = lastSentAt === 0 || now - lastSentAt >= minIntervalMs;
     const enoughText = buffer.trim().length >= minFlushChars;
-    const sentenceReady = sentenceEndPattern.test(buffer.trim());
-    if (!force && (!enoughTime || (!enoughText && !sentenceReady))) {
+    if (!force && (!enoughTime || !enoughText)) {
       return;
     }
 
@@ -787,7 +851,7 @@ export class WechatWorker {
         : activeSession;
 
     let rawReply: string;
-    let adminProgressSender: AdminProgressSender | undefined;
+    let progressReplySender: ProgressReplySender | undefined;
     let streamingReplySender: StreamingReplySender | undefined;
 
     if (parsedCommand) {
@@ -848,16 +912,34 @@ export class WechatWorker {
           userText: inbound.text,
           attachments: pendingAttachments,
         });
-        adminProgressSender =
-          route.role === "admin" && backendForTurn.backendKind === "acp"
-            ? createAdminProgressSender({
+        const outputProgressEnabled = resolveOutputProgressEnabled({
+          config: this.options.config,
+          role: route.role,
+          sessionMemory,
+        });
+        const familyApiStreamingEnabled = resolveFamilyApiStreamingEnabled({
+          config: this.options.config,
+          sessionMemory,
+        });
+        progressReplySender =
+          outputProgressEnabled && backendForTurn.backendKind === "acp"
+            ? createProgressReplySender({
                 client,
                 toUserId: inbound.contactId,
                 contextToken: inbound.contextToken,
+                includeToolProgress: route.role === "admin",
+                ...(route.role === "family"
+                  ? {
+                      filterText: (text) =>
+                        filterFamilyOutput(text, this.options.config.familyPolicy),
+                    }
+                  : {}),
               })
             : undefined;
         streamingReplySender =
-          route.role === "family" && backendForTurn.backendKind === "api"
+          route.role === "family" &&
+          backendForTurn.backendKind === "api" &&
+          familyApiStreamingEnabled
             ? createFamilyApiStreamingSender({
                 client,
                 toUserId: inbound.contactId,
@@ -882,7 +964,7 @@ export class WechatWorker {
           contextToken: inbound.contextToken,
           typingRefreshMs: this.options.config.wechat.typingRefreshMs,
           thinkingNoticeIntervalMs:
-            route.role === "admin" && backendForTurn.backendKind === "acp"
+            progressReplySender && backendForTurn.backendKind === "acp"
               ? 0
               : this.options.config.wechat.thinkingNoticeMs,
           shouldSendThinkingNotice: () =>
@@ -914,7 +996,7 @@ export class WechatWorker {
                   : "full_text",
               onProgress: (event) => {
                 progress.phase = event.phase;
-                adminProgressSender?.handle(event);
+                progressReplySender?.handle(event);
               },
               ...(streamingReplySender
                 ? {
@@ -925,7 +1007,7 @@ export class WechatWorker {
                 : {}),
             }),
         });
-        await adminProgressSender?.flush();
+        await progressReplySender?.flush();
         await streamingReplySender?.flush();
         rawReply = await handleAssistantFileActions({
           rawReply,
@@ -952,7 +1034,7 @@ export class WechatWorker {
         ? filterFamilyOutput(rawReply, this.options.config.familyPolicy)
         : rawReply;
     const remainingReplyText =
-      adminProgressSender?.removeAlreadySentText(replyText) ??
+      progressReplySender?.removeAlreadySentText(replyText) ??
       streamingReplySender?.removeAlreadySentText(replyText) ??
       replyText;
     const finalReplyText = [dayChangeNotice, replyText].filter(Boolean).join("\n");
@@ -992,14 +1074,16 @@ export class WechatWorker {
       createdAt: new Date().toISOString(),
       sourceMessageId: lastClientId || inbound.sourceMessageId,
     });
-    const latestMemory = parseSessionMemory(sessionForReply.memoryJson);
+    const latestSession =
+      this.options.database.getSessionById(sessionForReply.id) ?? sessionForReply;
+    const latestMemory = parseSessionMemory(latestSession.memoryJson);
     this.options.database.saveSession({
       id: sessionForReply.id,
       wechatAccountId: sessionForReply.wechatAccountId,
       contactId: sessionForReply.contactId,
-      role: route.role,
-      status: sessionForReply.status,
-      summaryText: sessionForReply.summaryText,
+      role: latestSession.role,
+      status: latestSession.status,
+      summaryText: latestSession.summaryText,
       memoryJson: stringifySessionMemory({
         ...latestMemory,
         turnCount:
@@ -1012,7 +1096,7 @@ export class WechatWorker {
           estimateTextTokens(userTextForCodex) +
           estimateTextTokens(finalReplyText),
       }),
-      contextToken: sessionForReply.contextToken,
+      contextToken: latestSession.contextToken,
       lastActiveAt: new Date().toISOString(),
     });
   }

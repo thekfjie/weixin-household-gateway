@@ -230,6 +230,112 @@ function buildCodexSettingsReply(params: {
   return "用法：/codex admin|family [model <模型>|reasoning <low|medium|high|xhigh>|reset]";
 }
 
+function formatSwitch(value: boolean): string {
+  return value ? "on" : "off";
+}
+
+function parseSwitch(value: string | undefined): boolean | undefined {
+  const normalized = value?.trim().toLowerCase();
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (["on", "true", "1", "开", "开启", "打开"].includes(normalized)) {
+    return true;
+  }
+
+  if (["off", "false", "0", "关", "关闭"].includes(normalized)) {
+    return false;
+  }
+
+  return undefined;
+}
+
+function resolveProgressDefault(params: {
+  config: AppConfig;
+  role: UserRole;
+}): boolean {
+  return params.role === "admin"
+    ? params.config.wechat.adminProgressEnabled
+    : params.config.wechat.familyProgressEnabled;
+}
+
+function buildOutputSettingsReply(params: {
+  command: ParsedCommand;
+  config: AppConfig;
+  database: AppDatabase;
+  role: UserRole;
+  session: SessionRecord;
+  sessionMemory: SessionMemoryState;
+}): string {
+  const progressEnabled =
+    params.sessionMemory.outputProgressEnabled ??
+    resolveProgressDefault({
+      config: params.config,
+      role: params.role,
+    });
+  const familyApiStreamingEnabled =
+    params.sessionMemory.familyApiStreamingEnabled ??
+    params.config.wechat.familyApiStreamingEnabled;
+
+  const target = params.command.args[0]?.trim().toLowerCase();
+  if (!target) {
+    const lines = [
+      "当前输出设置：",
+      `process=${formatSwitch(progressEnabled)}`,
+    ];
+    if (params.role === "family") {
+      lines.push(`family-api-stream=${formatSwitch(familyApiStreamingEnabled)}`);
+    }
+    lines.push(
+      "",
+      "用法：",
+      "/output process on|off",
+      params.role === "family" ? "/output family-api-stream on|off" : "",
+    );
+    return lines.filter((line) => line !== "").join("\n");
+  }
+
+  if (target !== "process" && target !== "family-api-stream") {
+    return "用法：/output process on|off 或 /output family-api-stream on|off";
+  }
+
+  if (target === "family-api-stream" && params.role !== "family") {
+    return "family-api-stream 只影响 family 的直连 API 早发。";
+  }
+
+  const enabled = parseSwitch(params.command.args[1]);
+  if (enabled === undefined) {
+    return "用法：/output process on|off 或 /output family-api-stream on|off";
+  }
+
+  const nextMemory =
+    target === "process"
+      ? {
+          ...params.sessionMemory,
+          outputProgressEnabled: enabled,
+        }
+      : {
+          ...params.sessionMemory,
+          familyApiStreamingEnabled: enabled,
+        };
+  params.database.saveSession({
+    id: params.session.id,
+    wechatAccountId: params.session.wechatAccountId,
+    contactId: params.session.contactId,
+    role: params.session.role,
+    status: params.session.status,
+    summaryText: params.session.summaryText,
+    memoryJson: stringifySessionMemory(nextMemory),
+    contextToken: params.session.contextToken,
+    lastActiveAt: params.session.lastActiveAt,
+  });
+
+  return target === "process"
+    ? `过程输出已${enabled ? "开启" : "关闭"}。`
+    : `family API 早发已${enabled ? "开启" : "关闭"}。`;
+}
+
 function buildSessionsReply(params: {
   database: AppDatabase;
   role: UserRole;
@@ -336,6 +442,7 @@ export function buildCommandReply(params: {
             "/files 查看最近可发送文件",
             "/accounts 查看已绑定微信账号",
             "/codex 查看或修改 admin/family 的模型与思考强度",
+            "/output 查看或切换过程输出",
           ].join("\n")
         : [
             "可用命令：",
@@ -347,6 +454,7 @@ export function buildCommandReply(params: {
             "/yesterday 查看昨天的上一段对话",
             "/new /reset /clear 清空当前对话并开启新会话",
             "/file <outbox文件路径> [说明] 回传当前会话产出的成品文件",
+            "/output 查看或切换过程输出",
           ].join("\n");
     case "/whoami":
       return [
@@ -406,6 +514,15 @@ export function buildCommandReply(params: {
         ...(params.onCodexSettingsChanged
           ? { onChanged: params.onCodexSettingsChanged }
           : {}),
+      });
+    case "/output":
+      return buildOutputSettingsReply({
+        command: params.command,
+        config: params.config,
+        database: params.database,
+        role: params.role,
+        session: params.session,
+        sessionMemory: params.sessionMemory,
       });
     case "/files":
       return buildFilesReply({

@@ -10,6 +10,8 @@
 - `/yesterday` 查看昨天的上一段对话
 - `/memory` 查看当前 memory 状态
 - `/summary` 查看当前摘要
+- `/output` 查看或切换当前会话输出设置
+- `/output process on|off` 开关 ACP 过程输出
 
 ## admin
 
@@ -28,9 +30,11 @@
 /codex admin model gpt-5.5
 /codex family reasoning high
 /codex admin reset
+/output process on
 ```
 
 ## family
 
 - `/mode` 只能查看当前模式，不能切到 `admin`
 - `/file <outbox文件路径> [说明]` 只允许回传当前会话 `outbox` 里的成品文件
+- `/output family-api-stream on|off` 开关直连 API 的提前分段发送

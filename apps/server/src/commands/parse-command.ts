@@ -20,6 +20,7 @@ const COMMANDS: readonly BuiltInCommand[] = [
   "/files",
   "/accounts",
   "/codex",
+  "/output",
 ];
 
 export function parseBuiltInCommand(text: string): ParsedCommand | undefined {
