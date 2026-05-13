@@ -67,6 +67,221 @@ function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
+interface AdminProgressSender {
+  handle(event: CodexProgressEvent): void;
+  flush(): Promise<void>;
+  removeAlreadySentText(text: string): string;
+}
+
+interface StreamingReplySender {
+  handleDelta(delta: string): void;
+  flush(): Promise<void>;
+  hasSentText(): boolean;
+  removeAlreadySentText(text: string): string;
+}
+
+function createAdminProgressSender(params: {
+  client: ILinkApiClient;
+  toUserId: string;
+  contextToken: string;
+}): AdminProgressSender {
+  let queue = Promise.resolve();
+  let lastSentAt = 0;
+  let queuedCount = 0;
+  let lastMessage = "";
+  const sentTexts: string[] = [];
+  const maxProgressMessages = 4;
+  const minIntervalMs = 8_000;
+
+  const enqueue = (message: string): void => {
+    const text = message.trim();
+    if (!text || text === lastMessage || queuedCount >= maxProgressMessages) {
+      return;
+    }
+
+    const now = Date.now();
+    if (queuedCount > 0 && now - lastSentAt < minIntervalMs) {
+      return;
+    }
+
+    lastMessage = text;
+    lastSentAt = now;
+    queuedCount += 1;
+    queue = queue
+      .then(() =>
+        sendTextMessage({
+          client: params.client,
+          toUserId: params.toUserId,
+          contextToken: params.contextToken,
+          text,
+        }),
+      )
+      .then(() => {
+        sentTexts.push(text);
+      })
+      .catch((error) => {
+        console.warn("[worker] failed to send admin progress", error);
+      });
+  };
+
+  return {
+    handle(event) {
+      if (event.phase === "responding") {
+        return;
+      }
+
+      if (event.phase === "visible_message_run" && event.message) {
+        enqueue(event.message);
+        return;
+      }
+
+      if (event.phase === "tool_progress" && event.message) {
+        enqueue(event.message);
+      }
+    },
+    flush() {
+      return queue;
+    },
+    removeAlreadySentText(text) {
+      let next = text.trim();
+      for (const sentText of sentTexts) {
+        if (next === sentText) {
+          return "";
+        }
+
+        if (next.startsWith(sentText)) {
+          next = next.slice(sentText.length).trim();
+        }
+      }
+      return next;
+    },
+  };
+}
+
+function createFamilyApiStreamingSender(params: {
+  client: ILinkApiClient;
+  toUserId: string;
+  contextToken: string;
+  config: AppConfig;
+}): StreamingReplySender {
+  let queue = Promise.resolve();
+  let buffer = "";
+  let lastSentAt = 0;
+  let queuedCount = 0;
+  let sawInternalAction = false;
+  const sentTexts: string[] = [];
+  const maxEarlyMessages = 4;
+  const minFlushChars = 80;
+  const maxFlushChars = 220;
+  const minIntervalMs = 2_500;
+  const sentenceEndPattern = /[。！？!?]\s*$/;
+
+  const send = (text: string): void => {
+    if (sawInternalAction || text.includes("[[")) {
+      sawInternalAction = true;
+      return;
+    }
+
+    const cleanText = filterFamilyOutput(text, params.config.familyPolicy);
+    if (!cleanText || queuedCount >= maxEarlyMessages) {
+      return;
+    }
+
+    queuedCount += 1;
+    queue = queue
+      .then(() =>
+        sendTextMessage({
+          client: params.client,
+          toUserId: params.toUserId,
+          contextToken: params.contextToken,
+          text: cleanText,
+        }),
+      )
+      .then(() => {
+        sentTexts.push(cleanText);
+      })
+      .catch((error) => {
+        console.warn("[worker] failed to send family API stream chunk", error);
+      });
+  };
+
+  const findCutIndex = (text: string): number => {
+    const limit = Math.min(text.length, maxFlushChars);
+    const window = text.slice(0, limit);
+    const candidates = [
+      window.lastIndexOf("\n\n"),
+      window.lastIndexOf("\n"),
+      window.lastIndexOf("。"),
+      window.lastIndexOf("！"),
+      window.lastIndexOf("？"),
+      window.lastIndexOf("!"),
+      window.lastIndexOf("?"),
+    ].filter((index) => index >= minFlushChars);
+    if (candidates.length > 0) {
+      return Math.max(...candidates) + 1;
+    }
+
+    return text.length >= maxFlushChars ? maxFlushChars : 0;
+  };
+
+  const maybeFlush = (force = false): void => {
+    if (!buffer.trim() || queuedCount >= maxEarlyMessages) {
+      return;
+    }
+
+    const now = Date.now();
+    const enoughTime = lastSentAt === 0 || now - lastSentAt >= minIntervalMs;
+    const enoughText = buffer.trim().length >= minFlushChars;
+    const sentenceReady = sentenceEndPattern.test(buffer.trim());
+    if (!force && (!enoughTime || (!enoughText && !sentenceReady))) {
+      return;
+    }
+
+    const cutIndex = force ? buffer.length : findCutIndex(buffer);
+    if (cutIndex <= 0) {
+      return;
+    }
+
+    const chunk = buffer.slice(0, cutIndex).trim();
+    buffer = buffer.slice(cutIndex).trimStart();
+    lastSentAt = now;
+    send(chunk);
+  };
+
+  return {
+    handleDelta(delta) {
+      if (delta.includes("[[")) {
+        sawInternalAction = true;
+      }
+      buffer += delta;
+      maybeFlush(false);
+    },
+    async flush() {
+      if (queuedCount > 0) {
+        maybeFlush(true);
+      }
+      await queue;
+    },
+    hasSentText() {
+      return queuedCount > 0;
+    },
+    removeAlreadySentText(text) {
+      let next = text.trim();
+      for (const sentText of sentTexts) {
+        if (next === sentText) {
+          return "";
+        }
+
+        if (next.startsWith(sentText)) {
+          next = next.slice(sentText.length).trim();
+        }
+      }
+
+      return next;
+    },
+  };
+}
+
 function buildFamilyAcpHandoff(params: {
   session: SessionRecord;
   database: AppDatabase;
@@ -117,6 +332,7 @@ async function buildCodexReply(params: {
   includeRecentTurns?: boolean;
   responseMode?: CodexResponseMode;
   onProgress?: (event: CodexProgressEvent) => void;
+  onTextDelta?: (delta: string) => void;
 }): Promise<string> {
   const promptSet = buildCodexPromptSet({
     config: params.config,
@@ -155,6 +371,7 @@ async function buildCodexReply(params: {
     readOnlyDirectories: promptSet.readOnlyDirectories,
     ...(params.responseMode ? { responseMode: params.responseMode } : {}),
     ...(params.onProgress ? { onProgress: params.onProgress } : {}),
+    ...(params.onTextDelta ? { onTextDelta: params.onTextDelta } : {}),
   });
 
   if (result.timedOut) {
@@ -570,6 +787,8 @@ export class WechatWorker {
         : activeSession;
 
     let rawReply: string;
+    let adminProgressSender: AdminProgressSender | undefined;
+    let streamingReplySender: StreamingReplySender | undefined;
 
     if (parsedCommand) {
       try {
@@ -629,6 +848,23 @@ export class WechatWorker {
           userText: inbound.text,
           attachments: pendingAttachments,
         });
+        adminProgressSender =
+          route.role === "admin" && backendForTurn.backendKind === "acp"
+            ? createAdminProgressSender({
+                client,
+                toUserId: inbound.contactId,
+                contextToken: inbound.contextToken,
+              })
+            : undefined;
+        streamingReplySender =
+          route.role === "family" && backendForTurn.backendKind === "api"
+            ? createFamilyApiStreamingSender({
+                client,
+                toUserId: inbound.contactId,
+                contextToken: inbound.contextToken,
+                config: this.options.config,
+              })
+            : undefined;
         const codexUserText =
           route.role === "family" && backendForTurn.backendKind === "acp"
             ? buildFamilyAcpHandoff({
@@ -646,8 +882,11 @@ export class WechatWorker {
           contextToken: inbound.contextToken,
           typingRefreshMs: this.options.config.wechat.typingRefreshMs,
           thinkingNoticeIntervalMs:
-            this.options.config.wechat.thinkingNoticeMs,
-          shouldSendThinkingNotice: () => true,
+            route.role === "admin" && backendForTurn.backendKind === "acp"
+              ? 0
+              : this.options.config.wechat.thinkingNoticeMs,
+          shouldSendThinkingNotice: () =>
+            !(streamingReplySender?.hasSentText() ?? false),
           buildThinkingNoticeText: (elapsedSeconds) =>
             buildThinkingNoticeText({
               role: route.role,
@@ -670,15 +909,24 @@ export class WechatWorker {
                   backendForTurn.backendKind === "acp"
                 ),
               responseMode:
-                route.role === "family" &&
                 backendForTurn.backendKind === "acp"
                   ? "final_message_run"
                   : "full_text",
               onProgress: (event) => {
                 progress.phase = event.phase;
+                adminProgressSender?.handle(event);
               },
+              ...(streamingReplySender
+                ? {
+                    onTextDelta: (delta) => {
+                      streamingReplySender?.handleDelta(delta);
+                    },
+                  }
+                : {}),
             }),
         });
+        await adminProgressSender?.flush();
+        await streamingReplySender?.flush();
         rawReply = await handleAssistantFileActions({
           rawReply,
           config: this.options.config,
@@ -687,42 +935,51 @@ export class WechatWorker {
           session: sessionForReply,
           role: route.role,
         });
-        } catch (error) {
-          console.error("[worker] codex reply failed", error);
-          rawReply = buildCodexErrorReply({
-            error,
-            role: route.role,
-            accountRole: accountRoute.role,
-            sessionMode: sessionMemory.routeMode,
-            codexCommand: this.options.config.codex[route.role].command,
-          });
-        }
+      } catch (error) {
+        console.error("[worker] codex reply failed", error);
+        rawReply = buildCodexErrorReply({
+          error,
+          role: route.role,
+          accountRole: accountRoute.role,
+          sessionMode: sessionMemory.routeMode,
+          codexCommand: this.options.config.codex[route.role].command,
+        });
       }
+    }
 
     const replyText =
       route.role === "family"
         ? filterFamilyOutput(rawReply, this.options.config.familyPolicy)
         : rawReply;
+    const remainingReplyText =
+      adminProgressSender?.removeAlreadySentText(replyText) ??
+      streamingReplySender?.removeAlreadySentText(replyText) ??
+      replyText;
     const finalReplyText = [dayChangeNotice, replyText].filter(Boolean).join("\n");
 
     if (!finalReplyText.trim()) {
       return;
     }
 
+    const textToSend = [dayChangeNotice, remainingReplyText]
+      .filter(Boolean)
+      .join("\n");
     let lastClientId = "";
-    const chunks = splitReplyText(
-      finalReplyText,
-      this.options.config.wechat.replyChunkChars,
-    );
-    for (const [index, chunk] of chunks.entries()) {
-      lastClientId = await sendTextMessage({
-        client,
-        toUserId: inbound.contactId,
-        contextToken: inbound.contextToken,
-        text: chunk,
-      });
-      if (index < chunks.length - 1) {
-        await sleep(350);
+    if (textToSend.trim()) {
+      const chunks = splitReplyText(
+        textToSend,
+        this.options.config.wechat.replyChunkChars,
+      );
+      for (const [index, chunk] of chunks.entries()) {
+        lastClientId = await sendTextMessage({
+          client,
+          toUserId: inbound.contactId,
+          contextToken: inbound.contextToken,
+          text: chunk,
+        });
+        if (index < chunks.length - 1) {
+          await sleep(350);
+        }
       }
     }
 

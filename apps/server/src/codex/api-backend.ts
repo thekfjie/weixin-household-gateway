@@ -20,6 +20,9 @@ interface ChatCompletionResponse {
     message?: {
       content?: string;
     };
+    delta?: {
+      content?: string;
+    };
     text?: string;
   }>;
   output_text?: string;
@@ -51,6 +54,21 @@ interface ResponsesOutputItem {
 interface ResponsesApiResponse {
   output_text?: string;
   output?: ResponsesOutputItem[];
+  error?: ApiErrorPayload;
+}
+
+interface ApiStreamChunk {
+  type?: string;
+  delta?: string;
+  text?: string;
+  output_text?: string;
+  response?: ResponsesApiResponse;
+  choices?: Array<{
+    delta?: {
+      content?: string;
+    };
+    text?: string;
+  }>;
   error?: ApiErrorPayload;
 }
 
@@ -304,6 +322,36 @@ function isCapabilityUnsupported(
   );
 }
 
+function isStreamingUnsupported(
+  status: number,
+  payload:
+    | ChatCompletionResponse
+    | ResponsesApiResponse
+    | undefined,
+  responseText: string,
+): boolean {
+  if ([404, 405, 501].includes(status)) {
+    return true;
+  }
+
+  const message = [
+    payload?.error?.message,
+    payload?.error?.type,
+    payload?.error?.code,
+    responseText,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    /\b(stream|streaming|sse|event-stream)\b/.test(message) &&
+    /(unsupported|not supported|unknown|invalid|unrecognized|unexpected|not found|disabled|extra fields? not permitted)/.test(
+      message,
+    )
+  );
+}
+
 async function parseJsonResponse<T>(
   response: Response,
 ): Promise<{ text: string; payload?: T }> {
@@ -318,8 +366,132 @@ async function parseJsonResponse<T>(
   }
 }
 
+function isEventStream(response: Response): boolean {
+  return (
+    response.headers.get("content-type")?.toLowerCase().includes("text/event-stream") ??
+    false
+  );
+}
+
+function extractStreamDelta(payload: ApiStreamChunk): string {
+  const type = payload.type ?? "";
+  if (
+    type === "response.output_text.delta" ||
+    type === "response.refusal.delta" ||
+    type.endsWith(".delta")
+  ) {
+    return payload.delta ?? payload.text ?? "";
+  }
+
+  return (
+    payload.delta ??
+    payload.output_text ??
+    payload.choices?.[0]?.delta?.content ??
+    payload.choices?.[0]?.text ??
+    ""
+  );
+}
+
+function extractStreamFinalText(payload: ApiStreamChunk): string {
+  if (payload.response) {
+    return readResponsesContent(payload.response);
+  }
+
+  return payload.output_text ?? "";
+}
+
+async function readEventStream(params: {
+  response: Response;
+  onTextDelta?: (delta: string) => void;
+}): Promise<{ text: string; rawText: string; finalPayload?: ApiStreamChunk }> {
+  if (!params.response.body) {
+    return { text: "", rawText: "" };
+  }
+
+  const reader = params.response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let text = "";
+  let rawText = "";
+  let finalPayload: ApiStreamChunk | undefined;
+
+  const handleEventData = (data: string): void => {
+    const trimmed = data.trim();
+    if (!trimmed || trimmed === "[DONE]") {
+      return;
+    }
+
+    try {
+      const payload = JSON.parse(trimmed) as ApiStreamChunk;
+      finalPayload = payload;
+      const finalText = extractStreamFinalText(payload);
+      if (finalText) {
+        text = finalText;
+        return;
+      }
+
+      const delta = extractStreamDelta(payload);
+      if (delta) {
+        text += delta;
+        params.onTextDelta?.(delta);
+      }
+    } catch {
+      rawText += trimmed;
+    }
+  };
+
+  const drainEvents = (): void => {
+    let boundaryIndex = buffer.indexOf("\n\n");
+    while (boundaryIndex >= 0) {
+      const eventText = buffer.slice(0, boundaryIndex);
+      buffer = buffer.slice(boundaryIndex + 2);
+      const data = eventText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter((line) => line.startsWith("data:"))
+        .map((line) => line.slice("data:".length).trimStart())
+        .join("\n");
+      handleEventData(data);
+      boundaryIndex = buffer.indexOf("\n\n");
+    }
+  };
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (value) {
+      buffer += decoder.decode(value, { stream: !done });
+      buffer = buffer.replace(/\r\n/g, "\n");
+      drainEvents();
+    }
+    if (done) {
+      buffer += decoder.decode();
+      buffer = buffer.replace(/\r\n/g, "\n");
+      if (buffer.trim()) {
+        const data = buffer
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter((line) => line.startsWith("data:"))
+          .map((line) => line.slice("data:".length).trimStart())
+          .join("\n");
+        handleEventData(data);
+      }
+      break;
+    }
+  }
+
+  return {
+    text: text.trim(),
+    rawText,
+    ...(finalPayload ? { finalPayload } : {}),
+  };
+}
+
 export class ApiCodexBackend implements CodexBackend {
   private responsesUnsupportedUntil = 0;
+
+  private responsesStreamUnsupportedUntil = 0;
+
+  private chatStreamUnsupportedUntil = 0;
 
   constructor(private readonly config: CodexRuntimeConfig) {}
 
@@ -327,12 +499,37 @@ export class ApiCodexBackend implements CodexBackend {
     return Date.now() >= this.responsesUnsupportedUntil;
   }
 
+  private shouldTryResponsesStream(): boolean {
+    return Date.now() >= this.responsesStreamUnsupportedUntil;
+  }
+
+  private shouldTryChatStream(): boolean {
+    return Date.now() >= this.chatStreamUnsupportedUntil;
+  }
+
   private markResponsesUnsupported(): void {
     this.responsesUnsupportedUntil = Date.now() + RESPONSES_UNSUPPORTED_TTL_MS;
   }
 
+  private markResponsesStreamUnsupported(): void {
+    this.responsesStreamUnsupportedUntil =
+      Date.now() + RESPONSES_UNSUPPORTED_TTL_MS;
+  }
+
+  private markChatStreamUnsupported(): void {
+    this.chatStreamUnsupportedUntil = Date.now() + RESPONSES_UNSUPPORTED_TTL_MS;
+  }
+
   private clearResponsesUnsupported(): void {
     this.responsesUnsupportedUntil = 0;
+  }
+
+  private clearResponsesStreamUnsupported(): void {
+    this.responsesStreamUnsupportedUntil = 0;
+  }
+
+  private clearChatStreamUnsupported(): void {
+    this.chatStreamUnsupportedUntil = 0;
   }
 
   private async runResponses(
@@ -343,21 +540,93 @@ export class ApiCodexBackend implements CodexBackend {
     | { kind: "fallback" }
     | { kind: "error"; result: CodexRunResult }
   > {
+    const requestBody = {
+      model: this.config.apiModel,
+      instructions: request.systemPrompt?.trim() || undefined,
+      prompt_cache_key: buildPromptCacheKey(
+        this.config.apiPromptCacheKeyPrefix,
+        request,
+      ),
+      input: buildResponsesInput(request),
+    };
+    if (request.onTextDelta && this.shouldTryResponsesStream()) {
+      const streamResponse = await fetch(buildResponsesUrl(this.config.apiBaseUrl!), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+        body: JSON.stringify({
+          ...requestBody,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+      if (streamResponse.ok && isEventStream(streamResponse)) {
+        this.clearResponsesUnsupported();
+        this.clearResponsesStreamUnsupported();
+        const streamResult = await readEventStream({
+          response: streamResponse,
+          onTextDelta: request.onTextDelta,
+        });
+        if (streamResult.text) {
+          return {
+            kind: "success",
+            result: {
+              text: streamResult.text,
+              stderr: "",
+              exitCode: 0,
+              timedOut: false,
+            },
+          };
+        }
+        this.markResponsesStreamUnsupported();
+      } else {
+        const { text, payload } =
+          await parseJsonResponse<ResponsesApiResponse>(streamResponse);
+        if (streamResponse.ok) {
+          this.clearResponsesUnsupported();
+          this.markResponsesStreamUnsupported();
+          const content = readResponsesContent(payload ?? {});
+          if (content) {
+            return {
+              kind: "success",
+              result: {
+                text: content,
+                stderr: "",
+                exitCode: 0,
+                timedOut: false,
+              },
+            };
+          }
+        } else if (isTemporaryFailure(streamResponse.status)) {
+          return {
+            kind: "error",
+            result: {
+              text: "",
+              stderr:
+                payload?.error?.message ??
+                `Responses API stream HTTP ${streamResponse.status}: ${text.slice(0, 500)}`,
+              exitCode: 1,
+              timedOut: false,
+            },
+          };
+        } else if (
+          !streamResponse.ok &&
+          isStreamingUnsupported(streamResponse.status, payload, text)
+        ) {
+          this.markResponsesStreamUnsupported();
+        }
+      }
+    }
+
     const response = await fetch(buildResponsesUrl(this.config.apiBaseUrl!), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.config.apiKey}`,
       },
-      body: JSON.stringify({
-        model: this.config.apiModel,
-        instructions: request.systemPrompt?.trim() || undefined,
-        prompt_cache_key: buildPromptCacheKey(
-          this.config.apiPromptCacheKeyPrefix,
-          request,
-        ),
-        input: buildResponsesInput(request),
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 
@@ -414,20 +683,81 @@ export class ApiCodexBackend implements CodexBackend {
     request: CodexBackendRequest,
     controller: AbortController,
   ): Promise<CodexRunResult> {
+    const requestBody = {
+      model: this.config.apiModel,
+      prompt_cache_key: buildPromptCacheKey(
+        this.config.apiPromptCacheKeyPrefix,
+        request,
+      ),
+      messages: buildChatCompletionMessages(request),
+    };
+    if (request.onTextDelta && this.shouldTryChatStream()) {
+      const streamResponse = await fetch(buildChatCompletionsUrl(this.config.apiBaseUrl!), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+        body: JSON.stringify({
+          ...requestBody,
+          stream: true,
+        }),
+        signal: controller.signal,
+      });
+      if (streamResponse.ok && isEventStream(streamResponse)) {
+        this.clearChatStreamUnsupported();
+        const streamResult = await readEventStream({
+          response: streamResponse,
+          onTextDelta: request.onTextDelta,
+        });
+        if (streamResult.text) {
+          return {
+            text: streamResult.text,
+            stderr: "",
+            exitCode: 0,
+            timedOut: false,
+          };
+        }
+        this.markChatStreamUnsupported();
+      } else {
+        const { text, payload } =
+          await parseJsonResponse<ChatCompletionResponse>(streamResponse);
+        if (streamResponse.ok) {
+          this.markChatStreamUnsupported();
+          const content = readChatCompletionContent(payload ?? {}).trim();
+          if (content) {
+            return {
+              text: content,
+              stderr: "",
+              exitCode: 0,
+              timedOut: false,
+            };
+          }
+        } else if (isTemporaryFailure(streamResponse.status)) {
+          return {
+            text: "",
+            stderr:
+              payload?.error?.message ??
+              `Chat Completions API stream HTTP ${streamResponse.status}: ${text.slice(0, 500)}`,
+            exitCode: 1,
+            timedOut: false,
+          };
+        } else if (
+          !streamResponse.ok &&
+          isStreamingUnsupported(streamResponse.status, payload, text)
+        ) {
+          this.markChatStreamUnsupported();
+        }
+      }
+    }
+
     const response = await fetch(buildChatCompletionsUrl(this.config.apiBaseUrl!), {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${this.config.apiKey}`,
       },
-      body: JSON.stringify({
-        model: this.config.apiModel,
-        prompt_cache_key: buildPromptCacheKey(
-          this.config.apiPromptCacheKeyPrefix,
-          request,
-        ),
-        messages: buildChatCompletionMessages(request),
-      }),
+      body: JSON.stringify(requestBody),
       signal: controller.signal,
     });
 

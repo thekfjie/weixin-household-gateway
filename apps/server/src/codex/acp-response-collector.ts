@@ -10,7 +10,9 @@ interface AcpResponseCollectorOptions {
 }
 
 interface MessageRun {
+  messageId?: string;
   chunks: string[];
+  announced: boolean;
 }
 
 export class AcpResponseCollector {
@@ -19,6 +21,8 @@ export class AcpResponseCollector {
   private readonly messageRuns: MessageRun[] = [];
 
   private currentMessageRun: MessageRun | undefined;
+
+  private readonly lastToolStatusById = new Map<string, string>();
 
   private sawThinking = false;
 
@@ -29,7 +33,18 @@ export class AcpResponseCollector {
   handleUpdate(notification: SessionNotification): void {
     const update = notification.update;
     switch (update.sessionUpdate) {
+      case "available_commands_update":
+        this.announceCurrentMessageRun();
+        this.currentMessageRun = undefined;
+        this.options.onProgress?.({
+          phase: "status",
+          message: "available_commands_update",
+          status: "ready",
+        });
+        return;
       case "agent_thought_chunk":
+        this.announceCurrentMessageRun();
+        this.currentMessageRun = undefined;
         if (!this.sawThinking) {
           this.sawThinking = true;
           this.options.onProgress?.({ phase: "thinking" });
@@ -42,16 +57,53 @@ export class AcpResponseCollector {
         }
         if (update.content.type === "text") {
           this.textChunks.push(update.content.text);
-          if (!this.currentMessageRun) {
-            this.currentMessageRun = { chunks: [] };
+          const messageId = update.messageId ?? undefined;
+          if (
+            !this.currentMessageRun ||
+            (messageId && this.currentMessageRun.messageId !== messageId)
+          ) {
+            this.announceCurrentMessageRun();
+            this.currentMessageRun = {
+              ...(messageId ? { messageId } : {}),
+              chunks: [],
+              announced: false,
+            };
             this.messageRuns.push(this.currentMessageRun);
           }
           this.currentMessageRun.chunks.push(update.content.text);
         }
         return;
+      case "tool_call":
+      case "tool_call_update": {
+        this.announceCurrentMessageRun();
+        this.currentMessageRun = undefined;
+        const status = update.status ?? "in_progress";
+        const toolCallId = update.toolCallId;
+        if (toolCallId) {
+          const key = `${toolCallId}:${status}`;
+          if (this.lastToolStatusById.get(toolCallId) === key) {
+            return;
+          }
+          this.lastToolStatusById.set(toolCallId, key);
+        }
+        const title = update.title ?? update.kind ?? "tool";
+        this.options.onProgress?.({
+          phase: "tool_progress",
+          message: buildToolProgressMessage({
+            title,
+            status,
+          }),
+          status,
+          ...(toolCallId ? { toolCallId } : {}),
+          ...(update.kind ? { toolKind: update.kind } : {}),
+          title,
+        });
+        return;
+      }
       case "usage_update":
         return;
       default:
+        this.announceCurrentMessageRun();
         this.currentMessageRun = undefined;
         return;
     }
@@ -73,5 +125,42 @@ export class AcpResponseCollector {
     }
 
     return this.textChunks.join("").trim();
+  }
+
+  private announceCurrentMessageRun(): void {
+    if (!this.currentMessageRun || this.currentMessageRun.announced) {
+      return;
+    }
+
+    const text = this.currentMessageRun.chunks.join("").trim();
+    if (!text) {
+      return;
+    }
+
+    this.currentMessageRun.announced = true;
+    this.options.onProgress?.({
+      phase: "visible_message_run",
+      message: text,
+    });
+  }
+}
+
+function buildToolProgressMessage(params: {
+  title: string;
+  status: string;
+}): string {
+  const title = params.title.trim() || "tool";
+
+  switch (params.status) {
+    case "pending":
+      return `准备执行：${title}`;
+    case "in_progress":
+      return `正在处理：${title}`;
+    case "completed":
+      return `已完成：${title}`;
+    case "failed":
+      return `执行失败：${title}`;
+    default:
+      return `正在处理：${title}`;
   }
 }

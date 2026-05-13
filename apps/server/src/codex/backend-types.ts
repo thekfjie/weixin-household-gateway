@@ -2,7 +2,17 @@ import { UserRole } from "../config/types.js";
 import { CodexRunResult } from "./types.js";
 
 export interface CodexProgressEvent {
-  phase: "thinking" | "responding";
+  phase:
+    | "thinking"
+    | "responding"
+    | "status"
+    | "tool_progress"
+    | "visible_message_run";
+  message?: string;
+  status?: string;
+  toolCallId?: string;
+  toolKind?: string;
+  title?: string;
 }
 
 export type CodexResponseMode = "full_text" | "final_message_run";
@@ -36,6 +46,7 @@ export interface CodexBackendRequest {
   readOnlyDirectories?: string[];
   responseMode?: CodexResponseMode;
   onProgress?: (event: CodexProgressEvent) => void;
+  onTextDelta?: (delta: string) => void;
 }
 
 export interface CodexBackend {
