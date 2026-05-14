@@ -25,6 +25,10 @@
   - 可配置 ACP 过程输出；
   - 可配置 `family-api` 保守提前发送；
   - `family` 输出过滤路径、命令片段和疑似内部推理文本。
+- 角色化提示词和上下文策略：
+  - `admin` 默认依赖持久 ACP 会话；
+  - `family-api` 维护约 100k 字符预算的独立 API 上下文轨道；
+  - `family-acp` 只带 deterministic carryover、短尾巴和当前任务信息。
 - 会话自动轮转：空闲时间、轮数、估算 token 和北京时间跨天。
 - SQLite 存储账号、会话、消息、附件和轮询游标。
 - 会话工作区：`inbox` 入站文件、`office` 中间文件、`outbox` 可回传成品。
@@ -128,6 +132,8 @@ WECHAT_FAMILY_API_STREAMING_ENABLED=false
 
 ACP 事件、`final_message_run`、过程输出限制和开发注意事项见
 [ACP 工作流](docs/acp-workflow.md)。
+
+角色提示词、上下文注入和缓存策略见 [提示词与上下文策略](docs/prompting.md)。
 
 ## 目录结构
 
@@ -245,6 +251,7 @@ bash infra/scripts/linux/uninstall.sh --yes
 
 - [Codex 配置](docs/codex-setup.md)
 - [ACP 工作流](docs/acp-workflow.md)
+- [提示词与上下文策略](docs/prompting.md)
 - [微信命令](docs/commands.md)
 - [Windows 本地测试](docs/windows-local-test.md)
 
