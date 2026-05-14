@@ -50,6 +50,7 @@ function buildRecentTurns(params: {
 }
 
 function buildSystemPrompt(params: {
+  config: AppConfig;
   role: UserRole;
   summary?: string;
 }): string {
@@ -148,6 +149,7 @@ export function buildCodexPromptSet(params: {
     session: params.session,
   });
   const systemPrompt = buildSystemPrompt({
+    config: params.config,
     role: params.role,
     ...(summary ? { summary } : {}),
   });
