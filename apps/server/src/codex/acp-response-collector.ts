@@ -90,6 +90,7 @@ export class AcpResponseCollector {
           title: update.title,
           kind: update.kind,
         });
+        const toolKind = update.kind ?? undefined;
         this.options.onProgress?.({
           phase: "tool_progress",
           message: buildToolProgressMessage({
@@ -98,7 +99,7 @@ export class AcpResponseCollector {
           }),
           status,
           ...(toolCallId ? { toolCallId } : {}),
-          ...(update.kind ? { toolKind: update.kind } : {}),
+          ...(toolKind ? { toolKind } : {}),
           title,
         });
         return;
@@ -169,8 +170,8 @@ function buildToolProgressMessage(params: {
 }
 
 function normalizeToolTitle(params: {
-  title: string | undefined;
-  kind: string | undefined;
+  title: string | null | undefined;
+  kind: string | null | undefined;
 }): string {
   const title = params.title?.trim();
   const kind = params.kind?.trim();
