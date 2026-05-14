@@ -325,7 +325,7 @@ export async function sendTextMessage(params: {
     },
   };
 
-  await params.client.sendMessage(request);
+  assertSendMessageSucceeded(await params.client.sendMessage(request), clientId);
   return clientId;
 }
 
@@ -377,8 +377,23 @@ export async function sendUploadedFileMessage(params: {
     },
   };
 
-  await params.client.sendMessage(request);
+  assertSendMessageSucceeded(await params.client.sendMessage(request), clientId);
   return clientId || lastClientId;
+}
+
+function assertSendMessageSucceeded(
+  response: { ret?: number; errmsg?: string },
+  clientId: string,
+): void {
+  if (response.ret === undefined || response.ret === 0) {
+    return;
+  }
+
+  throw new Error(
+    `iLink sendmessage failed for ${clientId}: ret=${response.ret}${
+      response.errmsg ? ` ${response.errmsg}` : ""
+    }`,
+  );
 }
 
 export async function uploadAndSendFileMessage(params: {

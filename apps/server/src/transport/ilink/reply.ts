@@ -106,6 +106,13 @@ export function buildCodexErrorReply(params: {
     ].join("\n");
   }
 
+  if (/Codex timed out|ACP prompt timed out|prompt did not acknowledge cancel/i.test(message)) {
+    return [
+      "这轮处理超过等待时间了。",
+      "我已经尝试停止后台任务，但没有拿到可发送的最终内容。你可以把任务范围缩小一点再试，或者让管理员查看服务日志确认 ACP 是否卡住。",
+    ].join("\n");
+  }
+
   if (authMissing) {
     return [
       "这次没有执行成功。",

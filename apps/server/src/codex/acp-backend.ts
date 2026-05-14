@@ -8,6 +8,13 @@ import { AcpResponseCollector } from "./acp-response-collector.js";
 import { CodexBackend, CodexBackendRequest } from "./backend-types.js";
 import { CodexRunResult } from "./types.js";
 
+class OperationTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OperationTimeoutError";
+  }
+}
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -17,7 +24,7 @@ function withTimeout<T>(
   return Promise.race([
     promise,
     new Promise<T>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      timer = setTimeout(() => reject(new OperationTimeoutError(message)), timeoutMs);
     }),
   ]).finally(() => {
     if (timer) {
@@ -118,36 +125,74 @@ export class AcpCodexBackend implements CodexBackend {
 
     this.connection.registerCollector(session.sessionId, collector);
     try {
-      const response = await withTimeout(
-        conn.prompt({
-          sessionId: session.sessionId,
-          prompt,
-          messageId: crypto.randomUUID(),
-        }),
-        this.config.timeoutMs,
-        `ACP prompt timed out after ${this.config.timeoutMs}ms`,
-      );
+      const promptRequest = {
+        sessionId: session.sessionId,
+        prompt,
+        messageId: crypto.randomUUID(),
+      };
+      const promptPromise = conn.prompt(promptRequest);
+      let timedOut = false;
+      let response: Awaited<typeof promptPromise>;
+      try {
+        response = await withTimeout(
+          promptPromise,
+          this.config.timeoutMs,
+          `ACP prompt timed out after ${this.config.timeoutMs}ms`,
+        );
+      } catch (error) {
+        if (!(error instanceof OperationTimeoutError)) {
+          throw error;
+        }
+
+        timedOut = true;
+        try {
+          await conn.cancel({ sessionId: session.sessionId });
+        } catch (cancelError) {
+          console.warn("[codex:acp] failed to cancel timed out prompt", cancelError);
+        }
+
+        try {
+          response = await withTimeout(
+            promptPromise,
+            15_000,
+            `ACP prompt did not acknowledge cancel after timeout`,
+          );
+        } catch (cancelWaitError) {
+          const text = collector.toText();
+          this.resetConnectionAfterStuckPrompt(request.conversationId);
+          return {
+            text,
+            stderr: [
+              `ACP prompt timed out after ${this.config.timeoutMs}ms`,
+              cancelWaitError instanceof Error
+                ? cancelWaitError.message
+                : String(cancelWaitError),
+            ]
+              .filter(Boolean)
+              .join("\n"),
+            exitCode: text.trim() ? 0 : 1,
+            timedOut: true,
+          };
+        }
+      }
       const text = collector.toText();
 
       return {
         text,
-        stderr:
-          response.stopReason === "end_turn"
-            ? ""
-            : [
-                `ACP stop reason: ${response.stopReason}`,
-                ...(response.stopReason === "cancelled"
-                  ? [
-                      this.connection.consumeLastPermissionDecision(
-                        session.sessionId,
-                      ) ?? "",
-                    ]
-                  : []),
-              ]
-                .filter(Boolean)
-                .join("\n"),
-        exitCode: response.stopReason === "end_turn" ? 0 : 1,
-        timedOut: false,
+        stderr: buildAcpStderr({
+          stopReason: response.stopReason,
+          timedOut,
+          timeoutMs: this.config.timeoutMs,
+          permissionDecision:
+            response.stopReason === "cancelled"
+              ? this.connection.consumeLastPermissionDecision(session.sessionId)
+              : undefined,
+        }),
+        exitCode:
+          response.stopReason === "end_turn" || (timedOut && text.trim())
+            ? 0
+            : 1,
+        timedOut,
       };
     } finally {
       this.connection.unregisterCollector(session.sessionId);
@@ -322,6 +367,35 @@ export class AcpCodexBackend implements CodexBackend {
       mode: 0o600,
     });
   }
+
+  private resetConnectionAfterStuckPrompt(conversationId: string): void {
+    this.sessions.clear();
+    this.persistedSessions.delete(conversationId);
+    this.savePersistedSessions();
+    this.connection.dispose();
+  }
+}
+
+function buildAcpStderr(params: {
+  stopReason: string;
+  timedOut: boolean;
+  timeoutMs: number;
+  permissionDecision?: string | undefined;
+}): string {
+  const lines: string[] = [];
+  if (params.timedOut) {
+    lines.push(`ACP prompt timed out after ${params.timeoutMs}ms`);
+  }
+
+  if (params.stopReason !== "end_turn") {
+    lines.push(`ACP stop reason: ${params.stopReason}`);
+  }
+
+  if (params.stopReason === "cancelled" && params.permissionDecision) {
+    lines.push(params.permissionDecision);
+  }
+
+  return lines.filter(Boolean).join("\n");
 }
 
 function normalizeDirectories(paths: string[] | undefined): string[] {

@@ -429,6 +429,13 @@ async function buildCodexReply(params: {
   });
 
   if (result.timedOut) {
+    if (result.text.trim()) {
+      return [
+        result.text.trim(),
+        "这轮处理已经超过等待时间，我已停止继续等待。上面是已生成内容，可能不是完整最终结果。",
+      ].join("\n");
+    }
+
     throw new Error("Codex timed out");
   }
 
