@@ -55,6 +55,10 @@ function buildSystemPrompt(params: {
 }): string {
   const promptContext = buildPromptContext({
     role: params.role,
+    assistantInstruction:
+      params.role === "admin"
+        ? params.config.prompts.adminAcp
+        : params.config.prompts.familyAcp,
     ...(params.summary
       ? {
           summary: {

@@ -407,7 +407,10 @@ async function buildCodexReply(params: {
     ...(params.backendKind === "api"
       ? {
           systemPrompt:
-            promptSet.systemPrompt ?? buildApiSystemPrompt(params.role),
+            buildApiSystemPrompt({
+              config: params.config,
+              role: params.role,
+            }),
           inputParts: buildApiInputParts({
             session: params.session,
             userText: params.userText,

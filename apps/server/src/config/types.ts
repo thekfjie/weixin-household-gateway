@@ -50,6 +50,13 @@ export interface FileSendConfig {
   maxBytes: number;
 }
 
+export interface PromptTemplateConfig {
+  adminAcp: string;
+  adminApi: string;
+  familyAcp: string;
+  familyApi: string;
+}
+
 export interface ServerConfig {
   port: number;
   timezone: string;
@@ -83,6 +90,7 @@ export interface AppConfig {
     admin: CodexRuntimeConfig;
     family: CodexRuntimeConfig;
   };
+  prompts: PromptTemplateConfig;
   familyPolicy: FamilyPolicyConfig;
   fileSend: FileSendConfig;
 }

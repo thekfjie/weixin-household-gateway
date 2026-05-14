@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   AppConfig,
   CodexAcpAuthMode,
@@ -248,6 +249,37 @@ function readDefaultChatModel(): string {
   return readOptionalEnv("CODEX_DEFAULT_MODEL", "gpt-5.5");
 }
 
+function resolveBundledPromptPath(relativePath: string): string {
+  const cwdPath = path.resolve(relativePath);
+  if (fs.existsSync(cwdPath)) {
+    return cwdPath;
+  }
+
+  return path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "..",
+    "..",
+    "..",
+    "..",
+    relativePath,
+  );
+}
+
+function readPromptTemplate(
+  envName: string,
+  defaultRelativePath: string,
+): string {
+  const configuredPath = readOptionalPath(envName);
+  const templatePath =
+    configuredPath ?? resolveBundledPromptPath(defaultRelativePath);
+  const text = fs.readFileSync(templatePath, "utf8").trim();
+  if (!text) {
+    throw new Error(`Prompt template is empty: ${templatePath}`);
+  }
+
+  return text;
+}
+
 export function loadConfig(): AppConfig {
   loadDotEnvFile();
 
@@ -394,6 +426,12 @@ export function loadConfig(): AppConfig {
           timeoutMs: readPositiveInteger("CODEX_FAMILY_PERMISSION_REVIEW_TIMEOUT_MS", 8_000),
         },
       },
+    },
+    prompts: {
+      adminAcp: readPromptTemplate("PROMPT_ADMIN_ACP_FILE", "prompts/admin-acp.md"),
+      adminApi: readPromptTemplate("PROMPT_ADMIN_API_FILE", "prompts/admin-api.md"),
+      familyAcp: readPromptTemplate("PROMPT_FAMILY_ACP_FILE", "prompts/family-acp.md"),
+      familyApi: readPromptTemplate("PROMPT_FAMILY_API_FILE", "prompts/family-api.md"),
     },
     familyPolicy: {
       stripReasoning: readBoolean("FAMILY_STRIP_REASONING", true),

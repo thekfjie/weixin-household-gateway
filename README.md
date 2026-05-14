@@ -28,7 +28,8 @@
 - 角色化提示词和上下文策略：
   - `admin` 默认依赖持久 ACP 会话；
   - `family-api` 维护约 100k 字符预算的独立 API 上下文轨道；
-  - `family-acp` 只带 deterministic carryover、短尾巴和当前任务信息。
+  - `family-acp` 只带 deterministic carryover、短尾巴和当前任务信息；
+  - 默认提示词放在 `prompts/` 目录，可通过环境变量指向自定义模板。
 - 会话自动轮转：空闲时间、轮数、估算 token 和北京时间跨天。
 - SQLite 存储账号、会话、消息、附件和轮询游标。
 - 会话工作区：`inbox` 入站文件、`office` 中间文件、`outbox` 可回传成品。
