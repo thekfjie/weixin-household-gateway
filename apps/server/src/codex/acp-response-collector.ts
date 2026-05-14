@@ -86,7 +86,10 @@ export class AcpResponseCollector {
           }
           this.lastToolStatusById.set(toolCallId, key);
         }
-        const title = update.title ?? update.kind ?? "tool";
+        const title = normalizeToolTitle({
+          title: update.title,
+          kind: update.kind,
+        });
         this.options.onProgress?.({
           phase: "tool_progress",
           message: buildToolProgressMessage({
@@ -163,4 +166,18 @@ function buildToolProgressMessage(params: {
     default:
       return `正在处理：${title}`;
   }
+}
+
+function normalizeToolTitle(params: {
+  title: string | undefined;
+  kind: string | undefined;
+}): string {
+  const title = params.title?.trim();
+  const kind = params.kind?.trim();
+  const source = `${title ?? ""} ${kind ?? ""}`.toLowerCase();
+  if (source.includes("image") && source.includes("generat")) {
+    return "生成图片";
+  }
+
+  return title || kind || "tool";
 }
