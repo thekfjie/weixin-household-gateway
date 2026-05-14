@@ -1,18 +1,52 @@
 import { UserRole } from "../../config/types.js";
 import { errorToRedactedMessage } from "../../policy/index.js";
 
-export function splitReplyText(text: string, maxChars: number): string[] {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return [];
+const CONTEXT_COMPACTED_NOTICE_PATTERN =
+  /Context compacted\s+Heads up:\s+Long threads and multiple compactions can cause the model to be less accurate\.\s+Start a new thread when possible to keep threads small and targeted\./gi;
+
+function normalizeContextCompactedNotice(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(
+      /^Context compacted Heads up:/i,
+      "Context compacted\nHeads up:",
+    )
+    .trim();
+}
+
+function splitSystemNoticeRuns(text: string): string[] {
+  const parts: string[] = [];
+  let cursor = 0;
+  CONTEXT_COMPACTED_NOTICE_PATTERN.lastIndex = 0;
+
+  for (
+    let match = CONTEXT_COMPACTED_NOTICE_PATTERN.exec(text);
+    match;
+    match = CONTEXT_COMPACTED_NOTICE_PATTERN.exec(text)
+  ) {
+    const before = text.slice(cursor, match.index).trim();
+    if (before) {
+      parts.push(before);
+    }
+    parts.push(normalizeContextCompactedNotice(match[0] ?? ""));
+    cursor = match.index + match[0].length;
   }
 
-  if (maxChars <= 0 || trimmed.length <= maxChars) {
-    return [trimmed];
+  const after = text.slice(cursor).trim();
+  if (after) {
+    parts.push(after);
+  }
+
+  return parts.length > 0 ? parts : [text.trim()].filter(Boolean);
+}
+
+function splitByLength(text: string, maxChars: number): string[] {
+  if (maxChars <= 0 || text.length <= maxChars) {
+    return [text];
   }
 
   const chunks: string[] = [];
-  let remaining = trimmed;
+  let remaining = text;
 
   while (remaining.length > maxChars) {
     const window = remaining.slice(0, maxChars);
@@ -35,6 +69,17 @@ export function splitReplyText(text: string, maxChars: number): string[] {
   }
 
   return chunks.filter(Boolean);
+}
+
+export function splitReplyText(text: string, maxChars: number): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  return splitSystemNoticeRuns(trimmed).flatMap((part) =>
+    splitByLength(part, maxChars),
+  );
 }
 
 export function buildCodexErrorReply(params: {
