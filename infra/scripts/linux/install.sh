@@ -270,6 +270,42 @@ install_system_packages() {
   esac
 }
 
+ensure_bubblewrap() {
+  if command -v bwrap >/dev/null 2>&1 && command -v bubblewrap >/dev/null 2>&1; then
+    return
+  fi
+
+  local package_manager
+  package_manager="$(detect_package_manager)"
+
+  if ! command -v bwrap >/dev/null 2>&1 && ! command -v bubblewrap >/dev/null 2>&1; then
+    echo "未检测到 bubblewrap/bwrap。Codex 的默认沙箱和部分 ACP 运行模式需要它。"
+    if [[ "${package_manager}" == "unknown" ]]; then
+      echo "当前系统包管理器不受支持，请按发行版文档手动安装 bubblewrap；安装器将继续。" >&2
+      return
+    fi
+
+    if ! prompt_yes_no "是否现在安装系统包 bubblewrap？" "y"; then
+      echo "跳过 bubblewrap 安装。admin 如果启用 danger-full-access 可继续；family ACP 可能无法使用默认沙箱。" >&2
+      return
+    fi
+
+    install_system_packages "${package_manager}" bubblewrap
+  fi
+
+  if command -v bwrap >/dev/null 2>&1 && ! command -v bubblewrap >/dev/null 2>&1; then
+    sudo install -d -m 755 /usr/local/bin
+    sudo ln -sfn "$(command -v bwrap)" /usr/local/bin/bubblewrap
+    echo "已创建兼容命令：/usr/local/bin/bubblewrap -> $(command -v bwrap)"
+  fi
+
+  if command -v bubblewrap >/dev/null 2>&1 && ! command -v bwrap >/dev/null 2>&1; then
+    sudo install -d -m 755 /usr/local/bin
+    sudo ln -sfn "$(command -v bubblewrap)" /usr/local/bin/bwrap
+    echo "已创建兼容命令：/usr/local/bin/bwrap -> $(command -v bubblewrap)"
+  fi
+}
+
 ensure_command_with_prompt() {
   local command_name="$1"
   local package_manager="$2"
@@ -788,12 +824,19 @@ build_env_pairs() {
   local codex_home
   local codex_provider="OpenAI"
   local codex_provider_name="OpenAI"
+  local admin_args="exec --skip-git-repo-check"
+  local admin_acp_args=""
 
   codex_home="$(service_user_home)/.codex"
 
   if [[ -n "${CODEX_CLI_BASE_URL}" ]]; then
     codex_provider="openai_compat"
     codex_provider_name="OpenAI-compatible"
+  fi
+
+  if [[ "${PERMISSION_MODE}" != "none" ]]; then
+    admin_args="exec --skip-git-repo-check -s danger-full-access"
+    admin_acp_args='-c sandbox_mode=\"danger-full-access\"'
   fi
 
   cat <<EOF
@@ -810,10 +853,10 @@ WECHAT_THINKING_NOTICE_MS=30000
 WECHAT_REPLY_CHUNK_CHARS=1800
 
 CODEX_ADMIN_COMMAND=${ADMIN_COMMAND}
-CODEX_ADMIN_ARGS=exec --skip-git-repo-check
+CODEX_ADMIN_ARGS=${admin_args}
 CODEX_ADMIN_BACKEND=acp
 CODEX_ADMIN_ACP_COMMAND=
-CODEX_ADMIN_ACP_ARGS=
+CODEX_ADMIN_ACP_ARGS=${admin_acp_args}
 CODEX_ADMIN_ACP_AUTH_MODE=auto
 CODEX_ADMIN_HOME=${codex_home}
 CODEX_ADMIN_MODE=full-auto
@@ -1256,6 +1299,7 @@ main() {
     exit 0
   fi
 
+  ensure_bubblewrap
   sync_app_dir
   prepare_system_backups
   install_env_and_service

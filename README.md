@@ -189,6 +189,9 @@ bash
 安装器会检测环境、安装运行依赖、构建服务、写入 `.env`、创建 systemd 服务，并
 在首次绑定时显示微信二维码。第一个扫码账号会成为 `admin`。
 
+Linux 部署时，安装器会处理 Codex CLI、`bubblewrap`/`bwrap` 兼容和 admin 运维沙箱参数；细节见
+[Codex 配置](docs/codex-setup.md)。
+
 ## 开发
 
 要求：

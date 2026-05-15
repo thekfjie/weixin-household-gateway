@@ -121,6 +121,33 @@ function tomlString(value: string): string {
   return JSON.stringify(value);
 }
 
+function isFilesystemRoot(candidate: string): boolean {
+  const resolved = path.resolve(candidate);
+  return resolved === path.parse(resolved).root;
+}
+
+function buildTrustedProjectBlocks(env: DotEnv): string[] {
+  const candidates = [
+    path.resolve(__dirname, "..", "..", ".."),
+    process.cwd(),
+    readOptionalValue(env, "CODEX_ADMIN_WORKSPACE"),
+  ];
+  const projectPaths = [
+    ...new Set(
+      candidates
+        .filter((item): item is string => Boolean(item?.trim()))
+        .map((item) => path.resolve(item))
+        .filter((item) => !isFilesystemRoot(item)),
+    ),
+  ];
+
+  return projectPaths.flatMap((projectPath) => [
+    `[projects.${tomlString(projectPath)}]`,
+    `trust_level = ${tomlString("trusted")}`,
+    "",
+  ]);
+}
+
 function buildConfigToml(env: DotEnv): string {
   const baseUrl = readValue(env, "CODEX_CLI_BASE_URL");
   const provider = readValue(
@@ -165,6 +192,7 @@ function buildConfigToml(env: DotEnv): string {
         "",
       ]
     : [];
+  const trustedProjectBlocks = buildTrustedProjectBlocks(env);
 
   return [
     `model_provider = ${tomlString(provider)}`,
@@ -178,6 +206,7 @@ function buildConfigToml(env: DotEnv): string {
     `model_auto_compact_token_limit = ${compactLimit}`,
     "",
     ...providerBlock,
+    ...trustedProjectBlocks,
   ].join("\n");
 }
 
