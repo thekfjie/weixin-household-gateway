@@ -73,8 +73,8 @@ export async function withTypingIndicator<T>(params: {
 
     sendingThinkingNotice = true;
     thinkingNoticeQueue = thinkingNoticeQueue
-      .then(() =>
-        sendTextMessage({
+      .then(async () => {
+        await sendTextMessage({
           client: params.client,
           toUserId: params.toUserId,
           contextToken: params.contextToken,
@@ -84,8 +84,8 @@ export async function withTypingIndicator<T>(params: {
               Math.round((Date.now() - thinkingStartedAt) / 1000),
             ),
           ),
-        }),
-      )
+        });
+      })
       .catch((error) => {
         console.warn("[worker] failed to send thinking notice", error);
       })
