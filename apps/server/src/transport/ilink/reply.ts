@@ -82,6 +82,15 @@ export function splitReplyText(text: string, maxChars: number): string[] {
   );
 }
 
+export function splitReplyTextBySystemNotice(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  return splitSystemNoticeRuns(trimmed);
+}
+
 export function buildCodexErrorReply(params: {
   error: unknown;
   role: UserRole;

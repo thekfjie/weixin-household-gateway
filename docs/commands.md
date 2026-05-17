@@ -4,6 +4,7 @@
 
 - `/help` 查看可用命令
 - `/time` 查看北京时间
+- `/stop` 停止当前正在执行的任务，`/cancel` 同义
 - `/whoami` 查看角色和会话信息
 - `/new` 开启新话题，保留轻量上下文
 - `/reset` `/clear` 彻底清空当前对话
@@ -32,6 +33,7 @@
 /codex family reasoning high
 /codex admin reset
 /output process on
+/stop
 ```
 
 ## family

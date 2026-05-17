@@ -8,8 +8,13 @@ export class CliCodexBackend implements CodexBackend {
   constructor(private readonly config: CodexRuntimeConfig) {}
 
   run(request: CodexBackendRequest): Promise<CodexRunResult> {
-    return runCodexInvocation(buildCodexCommand(this.config, request.prompt));
+    return runCodexInvocation({
+      ...buildCodexCommand(this.config, request.prompt),
+      ...(request.signal ? { signal: request.signal } : {}),
+    });
   }
+
+  cancel(_conversationId: string): void {}
 
   clearSession(_conversationId: string): void {}
 

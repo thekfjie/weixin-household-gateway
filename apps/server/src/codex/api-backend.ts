@@ -493,6 +493,10 @@ export class ApiCodexBackend implements CodexBackend {
 
   private chatStreamUnsupportedUntil = 0;
 
+  private readonly activeControllers = new Map<string, AbortController>();
+
+  private readonly cancelledConversations = new Set<string>();
+
   constructor(private readonly config: CodexRuntimeConfig) {}
 
   private shouldTryResponses(): boolean {
@@ -803,9 +807,17 @@ export class ApiCodexBackend implements CodexBackend {
     }
 
     const controller = new AbortController();
+    this.activeControllers.set(request.conversationId, controller);
     const timer = setTimeout(() => controller.abort(), this.config.timeoutMs);
+    const onAbort = (): void => {
+      controller.abort();
+    };
+    request.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
+      if (request.signal?.aborted) {
+        controller.abort();
+      }
       if (this.shouldTryResponses()) {
         const responsesResult = await this.runResponses(request, controller);
         if (responsesResult.kind === "success") {
@@ -819,22 +831,48 @@ export class ApiCodexBackend implements CodexBackend {
       return await this.runChatCompletions(request, controller);
     } catch (error) {
       const timedOut = error instanceof Error && error.name === "AbortError";
+      const cancelled =
+        timedOut &&
+        (Boolean(request.signal?.aborted) ||
+          this.cancelledConversations.has(request.conversationId));
       return {
         text: "",
-        stderr: timedOut
+        stderr: cancelled
+          ? "API backend cancelled"
+          : timedOut
           ? `API backend timed out after ${this.config.timeoutMs}ms`
           : error instanceof Error
             ? error.message
             : String(error),
         exitCode: 1,
-        timedOut,
+        timedOut: timedOut && !cancelled,
+        cancelled,
       };
     } finally {
       clearTimeout(timer);
+      request.signal?.removeEventListener("abort", onAbort);
+      if (this.activeControllers.get(request.conversationId) === controller) {
+        this.activeControllers.delete(request.conversationId);
+      }
+      this.cancelledConversations.delete(request.conversationId);
     }
+  }
+
+  cancel(conversationId: string): void {
+    if (!this.activeControllers.has(conversationId)) {
+      return;
+    }
+    this.cancelledConversations.add(conversationId);
+    this.activeControllers.get(conversationId)?.abort();
   }
 
   clearSession(_conversationId: string): void {}
 
-  dispose(): void {}
+  dispose(): void {
+    for (const conversationId of this.activeControllers.keys()) {
+      this.cancel(conversationId);
+    }
+    this.activeControllers.clear();
+    this.cancelledConversations.clear();
+  }
 }

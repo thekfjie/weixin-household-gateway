@@ -425,11 +425,15 @@ export function buildCommandReply(params: {
   switch (params.command.name) {
     case "/time":
       return `现在是北京时间 ${formatBeijingTime(new Date())}。`;
+    case "/stop":
+    case "/cancel":
+      return "当前没有正在处理的任务。";
     case "/help":
       return params.role === "admin"
         ? [
             "可用命令：",
             "/time 查看北京时间",
+            "/stop 停止当前正在执行的任务",
             "/whoami 查看当前账号角色",
             "/mode 查看或切换当前会话模式",
             "/memory 查看当前会话 memory",
@@ -448,6 +452,7 @@ export function buildCommandReply(params: {
         : [
             "可用命令：",
             "/time 查看北京时间",
+            "/stop 停止当前正在执行的任务",
             "/whoami 查看当前账号角色",
             "/mode 查看当前会话模式",
             "/memory 查看当前会话 memory",

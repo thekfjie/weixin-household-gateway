@@ -149,6 +149,17 @@ export async function runCodexInvocation(
   const args = [...invocation.args, invocation.prompt];
 
   return new Promise((resolve, reject) => {
+    if (invocation.signal?.aborted) {
+      resolve({
+        text: "",
+        stderr: "Codex invocation cancelled before start",
+        exitCode: 130,
+        timedOut: false,
+        cancelled: true,
+      });
+      return;
+    }
+
     const child = spawn(invocation.command, args, {
       cwd: invocation.workspace,
       env: buildChildEnv(invocation),
@@ -159,16 +170,36 @@ export async function runCodexInvocation(
     let stdout = "";
     let stderr = "";
     let timedOut = false;
+    let cancelled = false;
+    let terminating = false;
+    let forceKillTimer: NodeJS.Timeout | undefined;
 
-    const timer = setTimeout(() => {
-      timedOut = true;
+    const terminate = (reason: "timeout" | "cancelled"): void => {
+      if (terminating) {
+        return;
+      }
+      terminating = true;
+      if (reason === "timeout") {
+        timedOut = true;
+      } else {
+        cancelled = true;
+      }
       child.kill("SIGTERM");
-      setTimeout(() => {
+      forceKillTimer = setTimeout(() => {
         if (!child.killed) {
           child.kill("SIGKILL");
         }
       }, 2_000).unref();
+    };
+
+    const timer = setTimeout(() => {
+      terminate("timeout");
     }, invocation.timeoutMs);
+
+    const onAbort = (): void => {
+      terminate("cancelled");
+    };
+    invocation.signal?.addEventListener("abort", onAbort, { once: true });
 
     child.stdout?.on("data", (chunk: Buffer) => {
       stdout += chunk.toString("utf8");
@@ -186,16 +217,25 @@ export async function runCodexInvocation(
 
     child.once("error", (error) => {
       clearTimeout(timer);
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
+      invocation.signal?.removeEventListener("abort", onAbort);
       reject(error);
     });
 
     child.once("close", (exitCode) => {
       clearTimeout(timer);
+      if (forceKillTimer) {
+        clearTimeout(forceKillTimer);
+      }
+      invocation.signal?.removeEventListener("abort", onAbort);
       resolve({
         text: normalizeCodexStdout(stdout),
         stderr: trimOutput(stderr),
         exitCode,
         timedOut,
+        cancelled,
       });
     });
   });

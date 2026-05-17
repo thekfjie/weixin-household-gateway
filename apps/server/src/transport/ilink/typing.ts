@@ -7,6 +7,7 @@ export async function withTypingIndicator<T>(params: {
   contextToken: string;
   typingRefreshMs: number;
   thinkingNoticeIntervalMs: number;
+  thinkingNoticeScheduleMs?: number[] | undefined;
   shouldSendThinkingNotice?: () => boolean;
   buildThinkingNoticeText: (elapsedSeconds: number) => string;
   work: () => Promise<T>;
@@ -15,6 +16,7 @@ export async function withTypingIndicator<T>(params: {
   let refreshing = false;
   let refreshTimer: NodeJS.Timeout | undefined;
   let thinkingTimer: NodeJS.Timeout | undefined;
+  const scheduledThinkingTimers: NodeJS.Timeout[] = [];
   const thinkingStartedAt = Date.now();
   let sendingThinkingNotice = false;
 
@@ -60,34 +62,45 @@ export async function withTypingIndicator<T>(params: {
     console.warn("[worker] failed to start typing indicator", error);
   }
 
-  if (params.thinkingNoticeIntervalMs > 0) {
-    thinkingTimer = setInterval(() => {
-      if (params.shouldSendThinkingNotice && !params.shouldSendThinkingNotice()) {
-        return;
-      }
-      if (sendingThinkingNotice) {
-        return;
-      }
+  const sendThinkingNotice = (): void => {
+    if (params.shouldSendThinkingNotice && !params.shouldSendThinkingNotice()) {
+      return;
+    }
+    if (sendingThinkingNotice) {
+      return;
+    }
 
-      sendingThinkingNotice = true;
-      sendTextMessage({
-        client: params.client,
-        toUserId: params.toUserId,
-        contextToken: params.contextToken,
-        text: params.buildThinkingNoticeText(
-          Math.max(
-            1,
-            Math.round((Date.now() - thinkingStartedAt) / 1000),
-          ),
+    sendingThinkingNotice = true;
+    sendTextMessage({
+      client: params.client,
+      toUserId: params.toUserId,
+      contextToken: params.contextToken,
+      text: params.buildThinkingNoticeText(
+        Math.max(
+          1,
+          Math.round((Date.now() - thinkingStartedAt) / 1000),
         ),
+      ),
+    })
+      .catch((error) => {
+        console.warn("[worker] failed to send thinking notice", error);
       })
-        .catch((error) => {
-          console.warn("[worker] failed to send thinking notice", error);
-        })
-        .finally(() => {
-          sendingThinkingNotice = false;
-        });
-    }, params.thinkingNoticeIntervalMs);
+      .finally(() => {
+        sendingThinkingNotice = false;
+      });
+  };
+
+  if (params.thinkingNoticeScheduleMs?.length) {
+    for (const offsetMs of params.thinkingNoticeScheduleMs) {
+      scheduledThinkingTimers.push(
+        setTimeout(sendThinkingNotice, offsetMs),
+      );
+    }
+  } else if (params.thinkingNoticeIntervalMs > 0) {
+    thinkingTimer = setInterval(
+      sendThinkingNotice,
+      params.thinkingNoticeIntervalMs,
+    );
   }
 
   try {
@@ -98,6 +111,9 @@ export async function withTypingIndicator<T>(params: {
     }
     if (thinkingTimer) {
       clearInterval(thinkingTimer);
+    }
+    for (const timer of scheduledThinkingTimers) {
+      clearTimeout(timer);
     }
 
     if (typingTicket) {

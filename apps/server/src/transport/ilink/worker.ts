@@ -10,6 +10,7 @@ import {
   parseNaturalFileRequest,
   buildCommandReply,
 } from "../../commands/index.js";
+import type { ParsedCommand } from "../../commands/index.js";
 import {
   CodexBackend,
   CodexProgressEvent,
@@ -52,7 +53,7 @@ import {
   normalizeInboundWechatMessages,
 } from "./inbound.js";
 import {
-  splitReplyText,
+  splitReplyTextBySystemNotice,
   buildCodexErrorReply,
   buildCommandErrorReply,
   buildThinkingNoticeText,
@@ -70,6 +71,100 @@ import {
 
 function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
+}
+
+const MAX_TURN_VISIBLE_MESSAGES = 9;
+const FINAL_REPLY_RESERVED_MESSAGES = 2;
+const MAX_PROGRESS_VISIBLE_MESSAGES =
+  MAX_TURN_VISIBLE_MESSAGES - FINAL_REPLY_RESERVED_MESSAGES;
+
+interface ActiveTurn {
+  controller: AbortController;
+  conversationId: string;
+  backend?: CodexBackend | undefined;
+  startedAt: string;
+}
+
+function isStopCommand(command: ParsedCommand | undefined): boolean {
+  return command?.name === "/stop" || command?.name === "/cancel";
+}
+
+function shouldSendProgressByTimeline(params: {
+  queuedCount: number;
+  elapsedMs: number;
+  timeoutMs: number;
+  maxMessages: number;
+}): boolean {
+  if (params.queuedCount >= params.maxMessages) {
+    return false;
+  }
+
+  const timeoutMs = Math.max(params.timeoutMs, 60_000);
+  const edgeWindowMs = Math.min(120_000, Math.max(45_000, timeoutMs * 0.2));
+  const lateStartMs = Math.max(edgeWindowMs, timeoutMs - edgeWindowMs);
+  const earlyLimit = Math.min(4, params.maxMessages);
+  const lateReserve = params.maxMessages >= 4 ? 2 : 1;
+  const middleLimit = Math.max(
+    earlyLimit,
+    params.maxMessages - lateReserve,
+  );
+
+  if (params.elapsedMs <= edgeWindowMs) {
+    return params.queuedCount < earlyLimit;
+  }
+
+  if (params.elapsedMs >= lateStartMs) {
+    return true;
+  }
+
+  return params.queuedCount < middleLimit;
+}
+
+function buildThinkingNoticeScheduleMs(params: {
+  intervalMs: number;
+  timeoutMs: number;
+  maxMessages: number;
+  streamingEnabled?: boolean | undefined;
+}): number[] {
+  if (params.intervalMs <= 0 || params.maxMessages <= 0) {
+    return [];
+  }
+
+  const timeoutMs = Math.max(params.timeoutMs, params.intervalMs);
+  const latestMs = Math.max(params.intervalMs, timeoutMs - 5_000);
+  const candidates = [
+    params.intervalMs,
+    ...(params.streamingEnabled
+      ? [timeoutMs - 30_000]
+      : [
+          Math.round(timeoutMs * 0.25),
+          Math.round(timeoutMs * 0.65),
+          timeoutMs - 120_000,
+          timeoutMs - 30_000,
+        ]),
+  ];
+  const unique = new Set<number>();
+  for (const candidate of candidates) {
+    const offset = Math.round(candidate);
+    if (offset >= params.intervalMs && offset <= latestMs) {
+      unique.add(offset);
+    }
+  }
+
+  return [...unique]
+    .sort((left, right) => left - right)
+    .slice(0, params.maxMessages);
+}
+
+function compactFinalReplyChunks(chunks: string[]): string[] {
+  if (chunks.length <= FINAL_REPLY_RESERVED_MESSAGES) {
+    return chunks;
+  }
+
+  return [
+    ...chunks.slice(0, FINAL_REPLY_RESERVED_MESSAGES - 1),
+    chunks.slice(FINAL_REPLY_RESERVED_MESSAGES - 1).join("\n\n"),
+  ].filter(Boolean);
 }
 
 function resolveOutputProgressEnabled(params: {
@@ -106,6 +201,7 @@ interface ProgressReplySender {
   handle(event: CodexProgressEvent): void;
   flush(): Promise<void>;
   removeAlreadySentText(text: string): string;
+  sentCount(): number;
 }
 
 function normalizeForDuplicateCheck(text: string): string {
@@ -135,6 +231,8 @@ function createProgressReplySender(params: {
   includeToolProgress: boolean;
   maxProgressMessages: number;
   minIntervalMs: number;
+  shouldSend?: () => boolean;
+  shouldSendAt?: (params: { queuedCount: number; now: number }) => boolean;
   filterText?: (text: string) => string;
 }): ProgressReplySender {
   let queue = Promise.resolve();
@@ -150,6 +248,9 @@ function createProgressReplySender(params: {
     if (
       !text ||
       queuedCount >= maxProgressMessages ||
+      (params.shouldSend && !params.shouldSend()) ||
+      (params.shouldSendAt &&
+        !params.shouldSendAt({ queuedCount, now: Date.now() })) ||
       isDuplicateOrContainedText(text, queuedTexts)
     ) {
       return;
@@ -214,6 +315,9 @@ function createProgressReplySender(params: {
         }
       }
       return next;
+    },
+    sentCount() {
+      return sentTexts.length;
     },
   };
 }
@@ -388,6 +492,7 @@ async function buildCodexReply(params: {
   responseMode?: CodexResponseMode;
   onProgress?: (event: CodexProgressEvent) => void;
   onTextDelta?: (delta: string) => void;
+  signal?: AbortSignal | undefined;
 }): Promise<string> {
   const promptSet = buildCodexPromptSet({
     config: params.config,
@@ -429,7 +534,19 @@ async function buildCodexReply(params: {
     ...(params.responseMode ? { responseMode: params.responseMode } : {}),
     ...(params.onProgress ? { onProgress: params.onProgress } : {}),
     ...(params.onTextDelta ? { onTextDelta: params.onTextDelta } : {}),
+    ...(params.signal ? { signal: params.signal } : {}),
   });
+
+  if (result.cancelled) {
+    if (result.text.trim()) {
+      return [
+        result.text.trim(),
+        "这轮任务已停止。上面是停止前已经生成的内容，可能不是完整最终结果。",
+      ].join("\n");
+    }
+
+    return "这轮任务已停止。";
+  }
 
   if (result.timedOut) {
     if (result.text.trim()) {
@@ -466,6 +583,10 @@ export class WechatWorker {
   private running = false;
 
   private loopPromise: Promise<void> | undefined;
+
+  private readonly activeTurns = new Map<string, ActiveTurn>();
+
+  private readonly inboundTasks = new Set<Promise<void>>();
 
   private codexBackends: Record<"admin" | "family-acp" | "family-api", CodexBackend>;
 
@@ -539,9 +660,37 @@ export class WechatWorker {
   async stop(): Promise<void> {
     this.running = false;
     await this.loopPromise;
+    for (const activeTurn of this.activeTurns.values()) {
+      activeTurn.controller.abort();
+      await activeTurn.backend?.cancel(activeTurn.conversationId);
+    }
+    await Promise.allSettled([...this.inboundTasks]);
     this.codexBackends.admin.dispose();
     this.codexBackends["family-acp"].dispose();
     this.codexBackends["family-api"].dispose();
+  }
+
+  private getActiveTurnKey(params: {
+    wechatAccountId: string;
+    contactId: string;
+  }): string {
+    return `${params.wechatAccountId}\0${params.contactId}`;
+  }
+
+  private dispatchInboundMessage(
+    account: WechatAccountRecord,
+    client: ILinkApiClient,
+    inbound: ReturnType<typeof normalizeInboundWechatMessages>[number],
+  ): void {
+    const task = this.handleInboundMessage(account, client, inbound).catch(
+      (error) => {
+        console.error("[worker] inbound message task failed", error);
+      },
+    );
+    this.inboundTasks.add(task);
+    task.finally(() => {
+      this.inboundTasks.delete(task);
+    }).catch(() => undefined);
   }
 
   private getBackendForTurn(params: {
@@ -641,7 +790,7 @@ export class WechatWorker {
     });
 
     for (const inbound of inboundMessages) {
-      await this.handleInboundMessage(account, client, inbound);
+      this.dispatchInboundMessage(account, client, inbound);
     }
   }
 
@@ -728,6 +877,92 @@ export class WechatWorker {
       sessionId: activeSession.id,
     });
     const sessionMemory = parseSessionMemory(activeSession.memoryJson);
+    const parsedControlCommand = parseBuiltInCommand(inbound.text);
+    const activeTurnKey = this.getActiveTurnKey({
+      wechatAccountId: inbound.wechatAccountId,
+      contactId: inbound.contactId,
+    });
+    const existingActiveTurn = this.activeTurns.get(activeTurnKey);
+    if (isStopCommand(parsedControlCommand)) {
+      this.options.database.appendMessage({
+        id: buildMessageId("inbound"),
+        sessionId: activeSession.id,
+        direction: "inbound",
+        messageType: "text",
+        textContent: inbound.text,
+        createdAt: inbound.receivedAt,
+        sourceMessageId: inbound.sourceMessageId,
+      });
+
+      const reply = existingActiveTurn
+        ? "已收到停止请求，正在停止当前任务。"
+        : "当前没有正在处理的任务。";
+      if (existingActiveTurn) {
+        existingActiveTurn.controller.abort();
+        await existingActiveTurn.backend?.cancel(existingActiveTurn.conversationId);
+      }
+      const clientId = await sendTextMessage({
+        client,
+        toUserId: inbound.contactId,
+        contextToken: inbound.contextToken,
+        text: reply,
+      });
+      this.options.database.appendMessage({
+        id: buildMessageId("outbound"),
+        sessionId: activeSession.id,
+        direction: "outbound",
+        messageType: "text",
+        textContent: reply,
+        createdAt: new Date().toISOString(),
+        sourceMessageId: clientId || inbound.sourceMessageId,
+      });
+      return;
+    }
+
+    if (existingActiveTurn) {
+      this.options.database.appendMessage({
+        id: buildMessageId("inbound"),
+        sessionId: activeSession.id,
+        direction: "inbound",
+        messageType: "text",
+        textContent: [inbound.mediaSummary, inbound.text].filter(Boolean).join("\n"),
+        createdAt: inbound.receivedAt,
+        sourceMessageId: inbound.sourceMessageId,
+      });
+      const reply = "上一轮还在处理。需要中止的话请发送 /stop。";
+      const clientId = await sendTextMessage({
+        client,
+        toUserId: inbound.contactId,
+        contextToken: inbound.contextToken,
+        text: reply,
+      });
+      this.options.database.appendMessage({
+        id: buildMessageId("outbound"),
+        sessionId: activeSession.id,
+        direction: "outbound",
+        messageType: "text",
+        textContent: reply,
+        createdAt: new Date().toISOString(),
+        sourceMessageId: clientId || inbound.sourceMessageId,
+      });
+      return;
+    }
+
+    const parsedCommand =
+      parsedControlCommand ??
+      parseNaturalFileRequest(inbound.text);
+    const turnController =
+      !parsedCommand && (inbound.text.trim() || inbound.attachments.length > 0)
+        ? new AbortController()
+        : undefined;
+    if (turnController) {
+      this.activeTurns.set(activeTurnKey, {
+        controller: turnController,
+        conversationId: activeSession.id,
+        startedAt: new Date().toISOString(),
+      });
+    }
+
     if (inbound.attachments.length > 0 && !inbound.text.trim()) {
       const ack = buildMediaAckReply({
         role: route.role,
@@ -749,18 +984,27 @@ export class WechatWorker {
         sourceMessageId: clientId || inbound.sourceMessageId,
       });
     }
-    const downloadedAttachments =
-      inbound.attachments.length > 0
-        ? await downloadInboundAttachments({
-            attachments: inbound.attachments,
-            config: this.options.config,
-            client,
-            database: this.options.database,
-            session: activeSession,
-            sourceMessageId: inbound.sourceMessageId,
-            receivedAt: inbound.receivedAt,
+    let downloadedAttachments: PendingInboundAttachment[];
+    try {
+      downloadedAttachments =
+        inbound.attachments.length > 0
+          ? await downloadInboundAttachments({
+              attachments: inbound.attachments,
+              config: this.options.config,
+              client,
+              database: this.options.database,
+              session: activeSession,
+              sourceMessageId: inbound.sourceMessageId,
+              receivedAt: inbound.receivedAt,
           })
-        : [];
+          : [];
+    } catch (error) {
+      const activeTurn = this.activeTurns.get(activeTurnKey);
+      if (activeTurn?.controller === turnController) {
+        this.activeTurns.delete(activeTurnKey);
+      }
+      throw error;
+    }
 
     this.options.database.appendMessage({
       id: buildMessageId("inbound"),
@@ -816,12 +1060,13 @@ export class WechatWorker {
           sourceMessageId: clientId || inbound.sourceMessageId,
         });
       }
+      const activeTurn = this.activeTurns.get(activeTurnKey);
+      if (activeTurn?.controller === turnController) {
+        this.activeTurns.delete(activeTurnKey);
+      }
       return;
     }
 
-    const parsedCommand =
-      parseBuiltInCommand(inbound.text) ??
-      parseNaturalFileRequest(inbound.text);
     const pendingAttachments = parsedCommand
       ? downloadedAttachments
       : [
@@ -863,6 +1108,10 @@ export class WechatWorker {
     let codexTurnSucceeded = false;
 
     if (parsedCommand) {
+      const activeTurn = this.activeTurns.get(activeTurnKey);
+      if (activeTurn?.controller === turnController) {
+        this.activeTurns.delete(activeTurnKey);
+      }
       try {
         if (
           parsedCommand.name === "/new" ||
@@ -920,6 +1169,20 @@ export class WechatWorker {
           userText: inbound.text,
           attachments: pendingAttachments,
         });
+        if (turnController) {
+          const activeTurn = this.activeTurns.get(activeTurnKey);
+          if (activeTurn?.controller === turnController) {
+            activeTurn.conversationId = sessionForReply.id;
+            activeTurn.backend = backendForTurn.backend;
+          } else {
+            this.activeTurns.set(activeTurnKey, {
+              controller: turnController,
+              conversationId: sessionForReply.id,
+              backend: backendForTurn.backend,
+              startedAt: new Date().toISOString(),
+            });
+          }
+        }
         backendForCompletedTurn = {
           backendKind: backendForTurn.backendKind,
           persistentSession: backendForTurn.persistentSession,
@@ -940,6 +1203,9 @@ export class WechatWorker {
           config: this.options.config,
           sessionMemory,
         });
+        const turnStartedAt = Date.now();
+        const progressMessageBudget =
+          route.role === "admin" ? MAX_PROGRESS_VISIBLE_MESSAGES : 4;
         progressReplySender =
           outputProgressEnabled && backendForTurn.backendKind === "acp"
             ? createProgressReplySender({
@@ -947,8 +1213,18 @@ export class WechatWorker {
                 toUserId: inbound.contactId,
                 contextToken: inbound.contextToken,
                 includeToolProgress: route.role === "admin",
-                maxProgressMessages: route.role === "admin" ? 20 : 4,
+                maxProgressMessages: progressMessageBudget,
                 minIntervalMs: route.role === "admin" ? 15_000 : 8_000,
+                shouldSend: () =>
+                  (progressReplySender?.sentCount() ?? 0) <
+                  MAX_PROGRESS_VISIBLE_MESSAGES,
+                shouldSendAt: ({ queuedCount, now }) =>
+                  shouldSendProgressByTimeline({
+                    queuedCount,
+                    elapsedMs: now - turnStartedAt,
+                    timeoutMs: this.options.config.codex[route.role].timeoutMs,
+                    maxMessages: progressMessageBudget,
+                  }),
                 ...(route.role === "family"
                   ? {
                       filterText: (text) =>
@@ -985,9 +1261,18 @@ export class WechatWorker {
           contextToken: inbound.contextToken,
           typingRefreshMs: this.options.config.wechat.typingRefreshMs,
           thinkingNoticeIntervalMs:
-            progressReplySender && backendForTurn.backendKind === "acp"
+            progressReplySender
               ? 0
               : this.options.config.wechat.thinkingNoticeMs,
+          thinkingNoticeScheduleMs:
+            !progressReplySender
+              ? buildThinkingNoticeScheduleMs({
+                  intervalMs: this.options.config.wechat.thinkingNoticeMs,
+                  timeoutMs: this.options.config.codex[route.role].timeoutMs,
+                  maxMessages: MAX_PROGRESS_VISIBLE_MESSAGES,
+                  streamingEnabled: Boolean(streamingReplySender),
+                })
+              : undefined,
           shouldSendThinkingNotice: () =>
             !(streamingReplySender?.hasSentText() ?? false),
           buildThinkingNoticeText: (elapsedSeconds) =>
@@ -1026,6 +1311,7 @@ export class WechatWorker {
                     },
                   }
                 : {}),
+              ...(turnController ? { signal: turnController.signal } : {}),
             }),
         });
         await progressReplySender?.flush();
@@ -1048,6 +1334,11 @@ export class WechatWorker {
           sessionMode: sessionMemory.routeMode,
           codexCommand: this.options.config.codex[route.role].command,
         });
+      } finally {
+        const activeTurn = this.activeTurns.get(activeTurnKey);
+        if (activeTurn?.controller === turnController) {
+          this.activeTurns.delete(activeTurnKey);
+        }
       }
     }
 
@@ -1070,9 +1361,8 @@ export class WechatWorker {
       .join("\n");
     let lastClientId = "";
     if (textToSend.trim()) {
-      const chunks = splitReplyText(
-        textToSend,
-        this.options.config.wechat.replyChunkChars,
+      const chunks = compactFinalReplyChunks(
+        splitReplyTextBySystemNotice(textToSend),
       );
       for (const [index, chunk] of chunks.entries()) {
         lastClientId = await sendTextMessage({

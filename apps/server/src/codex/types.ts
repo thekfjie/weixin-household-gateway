@@ -10,6 +10,7 @@ export interface CodexInvocation {
   timeoutMs: number;
   workspace: string;
   prompt: string;
+  signal?: AbortSignal | undefined;
 }
 
 export interface CodexPlanPreview {
@@ -22,4 +23,5 @@ export interface CodexRunResult {
   stderr: string;
   exitCode: number | null;
   timedOut: boolean;
+  cancelled?: boolean | undefined;
 }

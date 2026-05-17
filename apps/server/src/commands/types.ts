@@ -10,6 +10,8 @@ export type BuiltInCommand =
   | "/time"
   | "/recent"
   | "/help"
+  | "/stop"
+  | "/cancel"
   | "/whoami"
   | "/sessions"
   | "/file"

@@ -47,10 +47,12 @@ export interface CodexBackendRequest {
   responseMode?: CodexResponseMode;
   onProgress?: (event: CodexProgressEvent) => void;
   onTextDelta?: (delta: string) => void;
+  signal?: AbortSignal | undefined;
 }
 
 export interface CodexBackend {
   run(request: CodexBackendRequest): Promise<CodexRunResult>;
+  cancel(conversationId: string): void | Promise<void>;
   clearSession(conversationId: string): void;
   dispose(): void;
 }

@@ -13,6 +13,8 @@ const COMMANDS: readonly BuiltInCommand[] = [
   "/time",
   "/recent",
   "/help",
+  "/stop",
+  "/cancel",
   "/whoami",
   "/sessions",
   "/file",

@@ -15,6 +15,16 @@ class OperationTimeoutError extends Error {
   }
 }
 
+class OperationCancelledError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "OperationCancelledError";
+  }
+}
+
+const ACP_TIMEOUT_CANCEL_GRACE_MS = 120_000;
+const ACP_MANUAL_CANCEL_GRACE_MS = 15_000;
+
 function withTimeout<T>(
   promise: Promise<T>,
   timeoutMs: number,
@@ -49,6 +59,11 @@ interface AcpSessionHandle {
   isFresh: boolean;
 }
 
+interface ActiveAcpPrompt {
+  sessionId: SessionId;
+  cancel: () => Promise<void>;
+}
+
 export class AcpCodexBackend implements CodexBackend {
   private readonly connection: AcpConnection;
 
@@ -57,6 +72,8 @@ export class AcpCodexBackend implements CodexBackend {
   private readonly persistedSessions = new Map<string, SessionId>();
 
   private readonly queues = new Map<string, Promise<unknown>>();
+
+  private readonly activePrompts = new Map<string, ActiveAcpPrompt>();
 
   private readonly sessionMapPath: string;
 
@@ -86,6 +103,16 @@ export class AcpCodexBackend implements CodexBackend {
   }
 
   private async runOnce(request: CodexBackendRequest): Promise<CodexRunResult> {
+    if (request.signal?.aborted) {
+      return {
+        text: "",
+        stderr: "ACP prompt cancelled before start",
+        exitCode: 130,
+        timedOut: false,
+        cancelled: true,
+      };
+    }
+
     fs.mkdirSync(this.config.workspace, { recursive: true });
     const additionalDirectories = normalizeDirectories(
       request.additionalDirectories,
@@ -132,30 +159,67 @@ export class AcpCodexBackend implements CodexBackend {
       };
       const promptPromise = conn.prompt(promptRequest);
       let timedOut = false;
+      let cancelled = false;
+      let cancelRequested = false;
+      let abortListener: (() => void) | undefined;
       let response: Awaited<typeof promptPromise>;
+
+      const cancelPrompt = async (reason: "timeout" | "cancelled"): Promise<void> => {
+        if (reason === "cancelled") {
+          cancelled = true;
+        }
+        if (cancelRequested) {
+          return;
+        }
+        cancelRequested = true;
+        try {
+          await conn.cancel({ sessionId: session.sessionId });
+        } catch (cancelError) {
+          console.warn("[codex:acp] failed to cancel prompt", cancelError);
+        }
+      };
+
+      const abortPromise = new Promise<never>((_resolve, reject) => {
+        abortListener = () => {
+          void cancelPrompt("cancelled");
+          reject(new OperationCancelledError("ACP prompt cancelled"));
+        };
+        request.signal?.addEventListener("abort", abortListener, { once: true });
+      });
+
+      this.activePrompts.set(request.conversationId, {
+        sessionId: session.sessionId,
+        cancel: () => cancelPrompt("cancelled"),
+      });
+      if (request.signal?.aborted) {
+        abortListener?.();
+      }
+
       try {
         response = await withTimeout(
-          promptPromise,
+          Promise.race([promptPromise, abortPromise]),
           this.config.timeoutMs,
           `ACP prompt timed out after ${this.config.timeoutMs}ms`,
         );
       } catch (error) {
-        if (!(error instanceof OperationTimeoutError)) {
+        if (
+          !(error instanceof OperationTimeoutError) &&
+          !(error instanceof OperationCancelledError)
+        ) {
           throw error;
         }
 
-        timedOut = true;
-        try {
-          await conn.cancel({ sessionId: session.sessionId });
-        } catch (cancelError) {
-          console.warn("[codex:acp] failed to cancel timed out prompt", cancelError);
-        }
+        timedOut = error instanceof OperationTimeoutError;
+        cancelled = error instanceof OperationCancelledError;
+        await cancelPrompt(cancelled ? "cancelled" : "timeout");
 
         try {
           response = await withTimeout(
             promptPromise,
-            15_000,
-            `ACP prompt did not acknowledge cancel after timeout`,
+            cancelled ? ACP_MANUAL_CANCEL_GRACE_MS : ACP_TIMEOUT_CANCEL_GRACE_MS,
+            cancelled
+              ? "ACP prompt did not acknowledge manual cancel"
+              : "ACP prompt did not acknowledge cancel after timeout",
           );
         } catch (cancelWaitError) {
           const text = collector.toText();
@@ -171,8 +235,17 @@ export class AcpCodexBackend implements CodexBackend {
               .filter(Boolean)
               .join("\n"),
             exitCode: text.trim() ? 0 : 1,
-            timedOut: true,
+            timedOut,
+            cancelled,
           };
+        }
+      } finally {
+        if (abortListener) {
+          request.signal?.removeEventListener("abort", abortListener);
+        }
+        const activePrompt = this.activePrompts.get(request.conversationId);
+        if (activePrompt?.sessionId === session.sessionId) {
+          this.activePrompts.delete(request.conversationId);
         }
       }
       const text = collector.toText();
@@ -183,6 +256,7 @@ export class AcpCodexBackend implements CodexBackend {
           stopReason: response.stopReason,
           timedOut,
           timeoutMs: this.config.timeoutMs,
+          cancelled,
           permissionDecision:
             response.stopReason === "cancelled"
               ? this.connection.consumeLastPermissionDecision(session.sessionId)
@@ -193,10 +267,15 @@ export class AcpCodexBackend implements CodexBackend {
             ? 0
             : 1,
         timedOut,
+        cancelled,
       };
     } finally {
       this.connection.unregisterCollector(session.sessionId);
     }
+  }
+
+  async cancel(conversationId: string): Promise<void> {
+    await this.activePrompts.get(conversationId)?.cancel();
   }
 
   private async getOrCreateSession(
@@ -324,6 +403,10 @@ export class AcpCodexBackend implements CodexBackend {
   }
 
   dispose(): void {
+    for (const activePrompt of this.activePrompts.values()) {
+      void activePrompt.cancel();
+    }
+    this.activePrompts.clear();
     this.sessions.clear();
     this.persistedSessions.clear();
     this.queues.clear();
@@ -380,9 +463,14 @@ function buildAcpStderr(params: {
   stopReason: string;
   timedOut: boolean;
   timeoutMs: number;
+  cancelled?: boolean | undefined;
   permissionDecision?: string | undefined;
 }): string {
   const lines: string[] = [];
+  if (params.cancelled) {
+    lines.push("ACP prompt cancelled");
+  }
+
   if (params.timedOut) {
     lines.push(`ACP prompt timed out after ${params.timeoutMs}ms`);
   }
