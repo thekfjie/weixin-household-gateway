@@ -73,10 +73,7 @@ function buildMessageId(prefix: string): string {
   return `${prefix}-${crypto.randomUUID()}`;
 }
 
-const MAX_TURN_VISIBLE_MESSAGES = 9;
-const FINAL_REPLY_RESERVED_MESSAGES = 2;
-const MAX_PROGRESS_VISIBLE_MESSAGES =
-  MAX_TURN_VISIBLE_MESSAGES - FINAL_REPLY_RESERVED_MESSAGES;
+const FINAL_REPLY_MESSAGE_SLOTS = 1;
 
 interface ActiveTurn {
   controller: AbortController;
@@ -156,14 +153,15 @@ function buildThinkingNoticeScheduleMs(params: {
     .slice(0, params.maxMessages);
 }
 
-function compactFinalReplyChunks(chunks: string[]): string[] {
-  if (chunks.length <= FINAL_REPLY_RESERVED_MESSAGES) {
+function compactFinalReplyChunks(chunks: string[], maxChunks: number): string[] {
+  const chunkLimit = Math.max(1, maxChunks);
+  if (chunks.length <= chunkLimit) {
     return chunks;
   }
 
   return [
-    ...chunks.slice(0, FINAL_REPLY_RESERVED_MESSAGES - 1),
-    chunks.slice(FINAL_REPLY_RESERVED_MESSAGES - 1).join("\n\n"),
+    ...chunks.slice(0, chunkLimit - 1),
+    chunks.slice(chunkLimit - 1).join("\n\n"),
   ].filter(Boolean);
 }
 
@@ -201,7 +199,6 @@ interface ProgressReplySender {
   handle(event: CodexProgressEvent): void;
   flush(): Promise<void>;
   removeAlreadySentText(text: string): string;
-  sentCount(): number;
 }
 
 function normalizeForDuplicateCheck(text: string): string {
@@ -248,16 +245,18 @@ function createProgressReplySender(params: {
     if (
       !text ||
       queuedCount >= maxProgressMessages ||
-      (params.shouldSend && !params.shouldSend()) ||
+      isDuplicateOrContainedText(text, queuedTexts) ||
       (params.shouldSendAt &&
-        !params.shouldSendAt({ queuedCount, now: Date.now() })) ||
-      isDuplicateOrContainedText(text, queuedTexts)
+        !params.shouldSendAt({ queuedCount, now: Date.now() }))
     ) {
       return;
     }
 
     const now = Date.now();
     if (queuedCount > 0 && now - lastSentAt < minIntervalMs) {
+      return;
+    }
+    if (params.shouldSend && !params.shouldSend()) {
       return;
     }
 
@@ -316,9 +315,6 @@ function createProgressReplySender(params: {
       }
       return next;
     },
-    sentCount() {
-      return sentTexts.length;
-    },
   };
 }
 
@@ -327,6 +323,8 @@ function createFamilyApiStreamingSender(params: {
   toUserId: string;
   contextToken: string;
   config: AppConfig;
+  maxEarlyMessages: number;
+  shouldSend?: () => boolean;
 }): StreamingReplySender {
   let queue = Promise.resolve();
   let buffer = "";
@@ -335,7 +333,7 @@ function createFamilyApiStreamingSender(params: {
   let sawInternalAction = false;
   const sentTexts: string[] = [];
   const queuedTexts: string[] = [];
-  const maxEarlyMessages = 2;
+  const maxEarlyMessages = params.maxEarlyMessages;
   const minFlushChars = 60;
   const minIntervalMs = 2_500;
   const sentenceEndPattern = /[。！？!?]\s*$/;
@@ -353,6 +351,9 @@ function createFamilyApiStreamingSender(params: {
       queuedCount >= maxEarlyMessages ||
       isDuplicateOrContainedText(cleanText, queuedTexts)
     ) {
+      return;
+    }
+    if (params.shouldSend && !params.shouldSend()) {
       return;
     }
 
@@ -1204,8 +1205,27 @@ export class WechatWorker {
           sessionMemory,
         });
         const turnStartedAt = Date.now();
+        const preFinalMessageBudget = Math.max(
+          0,
+          this.options.config.wechat.turnMessageLimit - FINAL_REPLY_MESSAGE_SLOTS,
+        );
+        let reservedPreFinalMessages = 0;
+        const tryReservePreFinalMessage = (): boolean => {
+          if (reservedPreFinalMessages >= preFinalMessageBudget) {
+            return false;
+          }
+
+          reservedPreFinalMessages += 1;
+          return true;
+        };
         const progressMessageBudget =
-          route.role === "admin" ? MAX_PROGRESS_VISIBLE_MESSAGES : 4;
+          route.role === "admin"
+            ? preFinalMessageBudget
+            : Math.min(4, preFinalMessageBudget);
+        const familyApiEarlyMessageBudget = Math.min(
+          2,
+          preFinalMessageBudget,
+        );
         progressReplySender =
           outputProgressEnabled && backendForTurn.backendKind === "acp"
             ? createProgressReplySender({
@@ -1215,9 +1235,7 @@ export class WechatWorker {
                 includeToolProgress: route.role === "admin",
                 maxProgressMessages: progressMessageBudget,
                 minIntervalMs: route.role === "admin" ? 15_000 : 8_000,
-                shouldSend: () =>
-                  (progressReplySender?.sentCount() ?? 0) <
-                  MAX_PROGRESS_VISIBLE_MESSAGES,
+                shouldSend: tryReservePreFinalMessage,
                 shouldSendAt: ({ queuedCount, now }) =>
                   shouldSendProgressByTimeline({
                     queuedCount,
@@ -1242,6 +1260,8 @@ export class WechatWorker {
                 toUserId: inbound.contactId,
                 contextToken: inbound.contextToken,
                 config: this.options.config,
+                maxEarlyMessages: familyApiEarlyMessageBudget,
+                shouldSend: tryReservePreFinalMessage,
               })
             : undefined;
         const codexUserText =
@@ -1269,12 +1289,13 @@ export class WechatWorker {
               ? buildThinkingNoticeScheduleMs({
                   intervalMs: this.options.config.wechat.thinkingNoticeMs,
                   timeoutMs: this.options.config.codex[route.role].timeoutMs,
-                  maxMessages: MAX_PROGRESS_VISIBLE_MESSAGES,
+                  maxMessages: preFinalMessageBudget,
                   streamingEnabled: Boolean(streamingReplySender),
                 })
               : undefined,
           shouldSendThinkingNotice: () =>
-            !(streamingReplySender?.hasSentText() ?? false),
+            !(streamingReplySender?.hasSentText() ?? false) &&
+            tryReservePreFinalMessage(),
           buildThinkingNoticeText: (elapsedSeconds) =>
             buildThinkingNoticeText({
               role: route.role,
@@ -1363,6 +1384,7 @@ export class WechatWorker {
     if (textToSend.trim()) {
       const chunks = compactFinalReplyChunks(
         splitReplyTextBySystemNotice(textToSend),
+        FINAL_REPLY_MESSAGE_SLOTS,
       );
       for (const [index, chunk] of chunks.entries()) {
         lastClientId = await sendTextMessage({

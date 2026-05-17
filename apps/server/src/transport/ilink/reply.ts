@@ -40,48 +40,6 @@ function splitSystemNoticeRuns(text: string): string[] {
   return parts.length > 0 ? parts : [text.trim()].filter(Boolean);
 }
 
-function splitByLength(text: string, maxChars: number): string[] {
-  if (maxChars <= 0 || text.length <= maxChars) {
-    return [text];
-  }
-
-  const chunks: string[] = [];
-  let remaining = text;
-
-  while (remaining.length > maxChars) {
-    const window = remaining.slice(0, maxChars);
-    const cutAt = Math.max(
-      window.lastIndexOf("\n\n"),
-      window.lastIndexOf("\n"),
-      window.lastIndexOf("。"),
-      window.lastIndexOf("！"),
-      window.lastIndexOf("？"),
-      window.lastIndexOf(". "),
-      window.lastIndexOf(" "),
-    );
-    const end = cutAt > Math.floor(maxChars * 0.45) ? cutAt + 1 : maxChars;
-    chunks.push(remaining.slice(0, end).trim());
-    remaining = remaining.slice(end).trim();
-  }
-
-  if (remaining) {
-    chunks.push(remaining);
-  }
-
-  return chunks.filter(Boolean);
-}
-
-export function splitReplyText(text: string, maxChars: number): string[] {
-  const trimmed = text.trim();
-  if (!trimmed) {
-    return [];
-  }
-
-  return splitSystemNoticeRuns(trimmed).flatMap((part) =>
-    splitByLength(part, maxChars),
-  );
-}
-
 export function splitReplyTextBySystemNotice(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) {

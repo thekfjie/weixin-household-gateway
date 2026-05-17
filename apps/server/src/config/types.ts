@@ -70,7 +70,7 @@ export interface WechatConfig {
   routeTag?: string;
   typingRefreshMs: number;
   thinkingNoticeMs: number;
-  replyChunkChars: number;
+  turnMessageLimit: number;
   adminProgressEnabled: boolean;
   familyProgressEnabled: boolean;
   familyApiStreamingEnabled: boolean;

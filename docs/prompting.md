@@ -106,6 +106,7 @@ API backend 时才会使用。
 ## 输出前处理
 
 - family 输出会经过 `filterFamilyOutput()`；
-- 最终文本统一经过 `splitReplyText()` 分段；
-- `Context compacted ... Heads up ...` 这类系统提醒会被拆成独立微信消息；
+- 最终文本默认作为最后一条完整微信消息发送，不再按普通长度分段；
+- 单轮可见消息预算由 `WECHAT_TURN_MESSAGE_LIMIT` 控制，默认前 9 条留给过程或提示，第 10 条留给最终答案；
+- `Context compacted ... Heads up ...` 这类系统提醒会被识别为独立文本块；当最终答案只剩 1 条预算时，会合并进最后一条最终消息；
 - 微信侧只能发送多条消息，不能更新或撤回同一条已发消息。

@@ -21,7 +21,8 @@
   - `family` 使用非持久 ACP 会话；
   - 收集 ACP status、工具进度、可见文本 run，并提取最终回答。
 - 微信友好的输出体验：
-  - 最终回答分段；
+  - 单轮可见消息预算；
+  - 最终回答固定作为最后一条发送；
   - 可配置 ACP 过程输出；
   - 可配置 `family-api` 保守提前发送；
   - `family` 输出过滤路径、命令片段和疑似内部推理文本。
@@ -53,7 +54,7 @@ flowchart TB
     ROUTE -->|admin| ADMINACP["Admin ACP<br/>持久会话"]
     ROUTE -->|family 普通聊天| FAPI["Family API<br/>直连"]
     ROUTE -->|family 复杂任务| FACP["Family ACP<br/>非持久会话"]
-    ADMINACP --> REPLY["输出过滤 + 分段"]
+    ADMINACP --> REPLY["输出过滤 + 消息预算"]
     FAPI --> REPLY
     FACP --> REPLY
     CMD --> REPLY
@@ -98,7 +99,9 @@ iLink updates -> WechatWorker -> 角色/后端路由 -> Codex backend
 
 微信不支持原地 token 级流式刷新，所以项目使用微信原生的多消息体验：
 
-- 最终回答按 `WECHAT_REPLY_CHUNK_CHARS` 分段发送；
+- 单轮可见消息预算由 `WECHAT_TURN_MESSAGE_LIMIT` 控制，默认 10 条；
+- 预算中的最后 1 条固定留给最终回答；
+- 前 `N-1` 条用于 ACP 过程输出、30 秒思考提示或 `family-api` 早发；
 - 过程输出指 Codex 对外可见的阶段性说明和工具调用进度；
 - `admin-acp` 默认开启过程输出；
 - `family-acp` 默认关闭过程输出；
@@ -107,13 +110,13 @@ iLink updates -> WechatWorker -> 角色/后端路由 -> Codex backend
 
 | 模式 | 默认过程输出 | 30s 思考提示 | 过程/分段限制 |
 | --- | --- | --- | --- |
-| `admin-acp` | 开 | 关闭 | 最多 20 条过程消息，至少间隔 15 秒；发送 `visible_message_run` 和工具进度 |
-| `family-acp` | 关 | 开 | 默认不发 ACP 过程；开 `/output process on` 后最多 4 条，至少间隔 8 秒，只发可见文本块，不发工具进度 |
-| `family-api` | 早发默认关 | 开 | 开 `/output family-api-stream on` 后最多提前发 2 条，至少 60 字，至少间隔 2.5 秒，只在强边界切 |
+| `admin-acp` | 开 | 关闭 | 最多占用前 `N-1` 条，至少间隔 15 秒；发送 `visible_message_run` 和工具进度 |
+| `family-acp` | 关 | 开 | 默认不发 ACP 过程；开 `/output process on` 后最多 4 条且不超过前 `N-1` 条，至少间隔 8 秒，只发可见文本块，不发工具进度 |
+| `family-api` | 早发默认关 | 开 | 开 `/output family-api-stream on` 后最多提前发 2 条且不超过前 `N-1` 条，至少 60 字，至少间隔 2.5 秒，只在强边界切 |
 
-`family-api` 未开启早发时，会等 API 完整返回后再发最终回答；最终回答仍会按
-`WECHAT_REPLY_CHUNK_CHARS` 兜底分段，默认 1800 字符，优先在段落、换行、句末
-或空格处分割，找不到合适切点时才按上限切。
+`family-api` 未开启早发时，会等 API 完整返回后再发最终回答。最终回答默认作为
+一条完整消息发送，不再做普通长度分段；如果前面已发送了 9 条过程消息，默认配置
+下第 10 条就是最终回答。
 
 `family-api` 维护独立的 API 聊天轨道，不把 ACP 工具任务的长过程直接混入 API
 上下文；这条轨道约有 100k 字符预算，超出后优先按完整旧轮次裁剪，尽量保持
@@ -125,7 +128,7 @@ iLink updates -> WechatWorker -> 角色/后端路由 -> Codex backend
 默认配置：
 
 ```dotenv
-WECHAT_REPLY_CHUNK_CHARS=1800
+WECHAT_TURN_MESSAGE_LIMIT=10
 WECHAT_ADMIN_PROGRESS_ENABLED=true
 WECHAT_FAMILY_PROGRESS_ENABLED=false
 WECHAT_FAMILY_API_STREAMING_ENABLED=false

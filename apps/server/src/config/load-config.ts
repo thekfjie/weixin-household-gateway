@@ -328,7 +328,7 @@ export function loadConfig(): AppConfig {
         "WECHAT_THINKING_NOTICE_MS",
         30_000,
       ),
-      replyChunkChars: readNonNegativeInteger("WECHAT_REPLY_CHUNK_CHARS", 1800),
+      turnMessageLimit: readPositiveInteger("WECHAT_TURN_MESSAGE_LIMIT", 10),
       adminProgressEnabled: readBoolean("WECHAT_ADMIN_PROGRESS_ENABLED", true),
       familyProgressEnabled: readBoolean("WECHAT_FAMILY_PROGRESS_ENABLED", false),
       familyApiStreamingEnabled: readBoolean(

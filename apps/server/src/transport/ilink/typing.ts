@@ -19,6 +19,7 @@ export async function withTypingIndicator<T>(params: {
   const scheduledThinkingTimers: NodeJS.Timeout[] = [];
   const thinkingStartedAt = Date.now();
   let sendingThinkingNotice = false;
+  let thinkingNoticeQueue = Promise.resolve();
 
   const sendTypingStatus = async (status: 1 | 2): Promise<void> => {
     if (!typingTicket) {
@@ -63,25 +64,28 @@ export async function withTypingIndicator<T>(params: {
   }
 
   const sendThinkingNotice = (): void => {
-    if (params.shouldSendThinkingNotice && !params.shouldSendThinkingNotice()) {
+    if (sendingThinkingNotice) {
       return;
     }
-    if (sendingThinkingNotice) {
+    if (params.shouldSendThinkingNotice && !params.shouldSendThinkingNotice()) {
       return;
     }
 
     sendingThinkingNotice = true;
-    sendTextMessage({
-      client: params.client,
-      toUserId: params.toUserId,
-      contextToken: params.contextToken,
-      text: params.buildThinkingNoticeText(
-        Math.max(
-          1,
-          Math.round((Date.now() - thinkingStartedAt) / 1000),
-        ),
-      ),
-    })
+    thinkingNoticeQueue = thinkingNoticeQueue
+      .then(() =>
+        sendTextMessage({
+          client: params.client,
+          toUserId: params.toUserId,
+          contextToken: params.contextToken,
+          text: params.buildThinkingNoticeText(
+            Math.max(
+              1,
+              Math.round((Date.now() - thinkingStartedAt) / 1000),
+            ),
+          ),
+        }),
+      )
       .catch((error) => {
         console.warn("[worker] failed to send thinking notice", error);
       })
@@ -115,6 +119,8 @@ export async function withTypingIndicator<T>(params: {
     for (const timer of scheduledThinkingTimers) {
       clearTimeout(timer);
     }
+
+    await thinkingNoticeQueue;
 
     if (typingTicket) {
       try {
