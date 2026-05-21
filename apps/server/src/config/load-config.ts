@@ -337,6 +337,18 @@ export function loadConfig(): AppConfig {
       ),
     },
     session: {
+      adminAutoRotateEnabled: readBoolean(
+        "SESSION_ADMIN_AUTO_ROTATE_ENABLED",
+        false,
+      ),
+      familyAutoRotateEnabled: readBoolean(
+        "SESSION_FAMILY_AUTO_ROTATE_ENABLED",
+        true,
+      ),
+      familyHotIdleMinutes: readPositiveInteger(
+        "SESSION_FAMILY_HOT_IDLE_MINUTES",
+        90,
+      ),
       rotateIdleHours: readPositiveInteger("SESSION_ROTATE_IDLE_HOURS", 24),
       rotateMaxTurns: readPositiveInteger("SESSION_ROTATE_MAX_TURNS", 50),
       rotateMaxEstimatedTokens: readPositiveInteger(

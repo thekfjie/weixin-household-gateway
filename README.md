@@ -31,7 +31,7 @@
   - `family-api` 维护约 100k 字符预算的独立 API 上下文轨道；
   - `family-acp` 只带 deterministic carryover、短尾巴和当前任务信息；
   - 默认提示词放在 `prompts/` 目录，可通过环境变量指向自定义模板。
-- 会话自动轮转：空闲时间、轮数、估算 token 和北京时间跨天。
+- `admin` 默认不自动轮转，用户用 `/new` 手动新建会话；`family` 默认启用热聊保护，只在冷场后才允许按跨天、空闲、轮数或 token 阈值轮转。
 - SQLite 存储账号、会话、消息、附件和轮询游标。
 - 会话工作区：`inbox` 入站文件、`office` 中间文件、`outbox` 可回传成品。
 - 运维工具：doctor 自检、备份/恢复、账号设置、Codex 配置生成、文件发送。
@@ -39,50 +39,63 @@
 ## 架构概览
 
 ```mermaid
-flowchart TB
-  subgraph WeChat["微信 / iLink"]
-    USER["微信用户"] --> POLL["iLink 轮询"]
-    POLL --> INBOUND["入站消息归一化"]
-    OUTBOUND["回复与文件发送"] --> USER
+flowchart LR
+  WX["微信联系人 / 群聊"]
+  ILINK["iLink API<br/>轮询 / typing / 发送 / 媒体"]
+
+  subgraph GATEWAY["Node.js 单服务"]
+    direction TB
+    WORKER["WechatWorker<br/>账号轮询 / 消息归一化 / 单轮并发控制"]
+    TURN["会话与输入准备<br/>角色模式 / 热聊保护 / 附件落盘"]
+    ROUTE{"命令或任务路由"}
+    REPLY["输出编排<br/>消息预算 / 过程提示 / 最终回复"]
+
+    WORKER --> TURN --> ROUTE
   end
 
-  subgraph Worker["WechatWorker"]
-    INBOUND --> SESSION["会话与角色解析"]
-    SESSION --> COMMAND{"内建命令？"}
-    COMMAND -->|是| CMD["命令处理器"]
-    COMMAND -->|否| ROUTE{"角色与后端路由"}
-    ROUTE -->|admin| ADMINACP["Admin ACP<br/>持久会话"]
-    ROUTE -->|family 普通聊天| FAPI["Family API<br/>直连"]
-    ROUTE -->|family 复杂任务| FACP["Family ACP<br/>非持久会话"]
-    ADMINACP --> REPLY["输出过滤 + 消息预算"]
-    FAPI --> REPLY
-    FACP --> REPLY
-    CMD --> REPLY
-    REPLY --> OUTBOUND
+  subgraph BACKENDS["Codex 执行层"]
+    direction LR
+    ADMIN["admin-acp<br/>持久 ACP 会话"]
+    FAPI["family-api<br/>轻量聊天，优先 /responses"]
+    FACP["family-acp<br/>复杂附件和工具任务"]
   end
 
-  subgraph Support["支撑层"]
-    DB["SQLite"]
-    FILES["会话工作区"]
-    HTTP["HTTP health/login APIs"]
-    CODEX["Codex CLI / ACP / API"]
-  end
+  SUPPORT[("支撑资源<br/>SQLite / prompts / inbox / office / outbox")]
+  OPS["运维入口<br/>HTTP / setup / doctor / backup / send-file"]
 
-  SESSION --> DB
-  CMD --> DB
-  ADMINACP --> CODEX
-  FAPI --> CODEX
-  FACP --> CODEX
-  ADMINACP --> FILES
-  FACP --> FILES
-  HTTP --> DB
+  WX <--> ILINK
+  ILINK --> WORKER
+  ROUTE -->|内建命令| REPLY
+  ROUTE -->|admin| ADMIN
+  ROUTE -->|family 轻量| FAPI
+  ROUTE -->|family 复杂| FACP
+  ADMIN --> REPLY
+  FAPI --> REPLY
+  FACP --> REPLY
+  REPLY --> ILINK
+
+  GATEWAY -. 读写状态和文件 .-> SUPPORT
+  BACKENDS -. 使用配置和工作区 .-> SUPPORT
+  OPS -. 管理和备份 .-> SUPPORT
+
+  classDef edge fill:#eef2ff,stroke:#818cf8,color:#312e81;
+  classDef gateway fill:#eff6ff,stroke:#60a5fa,color:#172554;
+  classDef decision fill:#fefce8,stroke:#facc15,color:#713f12;
+  classDef backend fill:#ecfdf5,stroke:#34d399,color:#064e3b;
+  classDef support fill:#fff7ed,stroke:#fb923c,color:#7c2d12;
+
+  class WX,ILINK edge;
+  class WORKER,TURN,REPLY gateway;
+  class ROUTE decision;
+  class ADMIN,FAPI,FACP backend;
+  class SUPPORT,OPS support;
 ```
 
 主链路：
 
 ```text
-iLink updates -> WechatWorker -> 角色/后端路由 -> Codex backend
-  -> 输出策略 -> iLink 消息发送 -> SQLite 会话/消息更新
+微信消息 -> iLink 轮询 -> WechatWorker -> 会话/附件准备 -> 内建命令或角色路由
+  -> Codex 后端 -> 输出策略 -> iLink 发送 -> 微信回复 / 文件回传
 ```
 
 ## 后端路由
@@ -132,6 +145,9 @@ WECHAT_TURN_MESSAGE_LIMIT=10
 WECHAT_ADMIN_PROGRESS_ENABLED=true
 WECHAT_FAMILY_PROGRESS_ENABLED=false
 WECHAT_FAMILY_API_STREAMING_ENABLED=false
+SESSION_ADMIN_AUTO_ROTATE_ENABLED=false
+SESSION_FAMILY_AUTO_ROTATE_ENABLED=true
+SESSION_FAMILY_HOT_IDLE_MINUTES=90
 ```
 
 ACP 事件、`final_message_run`、过程输出限制和开发注意事项见

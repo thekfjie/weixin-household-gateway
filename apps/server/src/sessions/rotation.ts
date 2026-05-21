@@ -26,8 +26,44 @@ export function shouldRotateByThresholds(params: {
   session: SessionRecord;
   memory: { turnCount?: number; estimatedTokenCount?: number };
   config: AppConfig;
+  role: UserRole;
 }): { shouldRotate: boolean; reason: string } {
+  if (
+    params.role === "admin" &&
+    !params.config.session.adminAutoRotateEnabled
+  ) {
+    return {
+      shouldRotate: false,
+      reason: "admin automatic session rotation is disabled",
+    };
+  }
+
+  if (
+    params.role === "family" &&
+    !params.config.session.familyAutoRotateEnabled
+  ) {
+    return {
+      shouldRotate: false,
+      reason: "family automatic session rotation is disabled",
+    };
+  }
+
   const now = new Date();
+  const lastActiveAt = new Date(params.session.lastActiveAt);
+  const idleMinutes =
+    (now.getTime() - lastActiveAt.getTime()) / (60 * 1000);
+
+  if (
+    params.role === "family" &&
+    !Number.isNaN(lastActiveAt.getTime()) &&
+    idleMinutes < params.config.session.familyHotIdleMinutes
+  ) {
+    return {
+      shouldRotate: false,
+      reason: `family session is hot: idle for ${idleMinutes.toFixed(1)} minutes`,
+    };
+  }
+
   if (
     isNewBeijingCalendarDay({
       previousAt: params.session.lastActiveAt,
