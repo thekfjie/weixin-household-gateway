@@ -489,6 +489,7 @@ export class WechatWorker {
       session,
       memory: existingSessionMemory,
       config: this.options.config,
+      role: route.role,
     });
     const sessionForTurn = rotateDecision.shouldRotate
         ? createNextSession({

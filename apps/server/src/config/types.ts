@@ -77,6 +77,9 @@ export interface WechatConfig {
 }
 
 export interface SessionConfig {
+  adminAutoRotateEnabled: boolean;
+  familyAutoRotateEnabled: boolean;
+  familyHotIdleMinutes: number;
   rotateIdleHours: number;
   rotateMaxTurns: number;
   rotateMaxEstimatedTokens: number;
