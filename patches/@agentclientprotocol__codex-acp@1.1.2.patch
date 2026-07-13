@@ -26,7 +26,7 @@ index 6c155607e9c29c9eb5c4893cf4d9a2fe44b92043..e44c13c73fc66ce1df7ea223b7723b88
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -25673,9 +25675,10 @@ var CodexAcpClient = class {
+@@ -25673,9 +25675,11 @@ var CodexAcpClient = class {
    }
    async newSession(request) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -35,6 +35,7 @@ index 6c155607e9c29c9eb5c4893cf4d9a2fe44b92043..e44c13c73fc66ce1df7ea223b7723b88
      const response = await this.codexClient.threadStart({
 -      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers),
 +      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers, readOnlyDirectories),
++      ...process.env["CODEX_ACP_PERMISSION_PROFILE"] === "weixin_family" ? { ephemeral: true } : {},
        modelProvider: this.getModelProvider(),
        cwd: request.cwd
      });

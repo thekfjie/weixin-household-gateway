@@ -8,6 +8,7 @@ import {
   AcpConnection,
   buildAcpLaunch,
   hasAcpEnvAuth,
+  resolveAcpRuntimeCodexHome,
 } from "./codex/acp-connection.js";
 import { AppDatabase } from "./storage/index.js";
 import { CodexRuntimeConfig } from "./config/types.js";
@@ -238,6 +239,16 @@ function checkFamilyAcpIsolation(config: CodexRuntimeConfig): CheckResult {
         "sandboxed temporary directory is not inside the family workspace",
       );
     }
+    const familyCodexHome = resolveAcpRuntimeCodexHome(config);
+    if (
+      launch.env.CODEX_HOME !== familyCodexHome ||
+      fs.existsSync(path.join(familyCodexHome, "auth.json"))
+    ) {
+      return fail(
+        "family ACP 文件隔离",
+        "family ACP host home is shared or contains persistent credentials",
+      );
+    }
     if (leakedKeys.length > 0) {
       return fail(
         "family ACP 文件隔离",
@@ -249,13 +260,48 @@ function checkFamilyAcpIsolation(config: CodexRuntimeConfig): CheckResult {
     }
     return ok(
       "family ACP 文件隔离",
-      `profile=${profileName}, root_deny=true, workspace_tmp=true, child_credentials=0, gateway_auth=${Boolean(launch.gatewayAuth)}`,
+      `profile=${profileName}, root_deny=true, workspace_tmp=true, isolated_home=true, child_credentials=0, gateway_auth=${Boolean(launch.gatewayAuth)}`,
     );
   } catch (error) {
     return fail(
       "family ACP 文件隔离",
       error instanceof Error ? error.message : String(error),
     );
+  }
+}
+
+function checkAcpRuntimeHomeIsolation(
+  name: string,
+  config: CodexRuntimeConfig,
+): CheckResult {
+  if (config.backend !== "acp" || !config.apiBaseUrl) {
+    return ok(name, "gateway authentication not enabled");
+  }
+  try {
+    const launch = buildAcpLaunch(config);
+    if (!launch.gatewayAuth) {
+      return fail(name, "protected gateway authentication is missing");
+    }
+    const runtimeHome = resolveAcpRuntimeCodexHome(config);
+    const codexConfig = JSON.parse(launch.env.CODEX_CONFIG ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    if (
+      launch.env.CODEX_HOME !== runtimeHome ||
+      launch.env.CODEX_CLI_HOME !== undefined ||
+      runtimeHome === config.codexHome ||
+      fs.existsSync(path.join(runtimeHome, "auth.json")) ||
+      codexConfig.cli_auth_credentials_store !== "file"
+    ) {
+      return fail(
+        name,
+        "ACP runtime home is shared, contains credentials, or can use the OS credential store",
+      );
+    }
+    return ok(name, `${runtimeHome}, auth.json=absent`);
+  } catch (error) {
+    return fail(name, error instanceof Error ? error.message : String(error));
   }
 }
 
@@ -438,6 +484,12 @@ async function run(): Promise<void> {
   if (config.codex.admin.backend === "acp") {
     results.push(await checkAcpCommand(config.codex.admin.acpCommand));
     results.push(checkAcpAuth("Codex ACP auth admin", config.codex.admin));
+    results.push(
+      checkAcpRuntimeHomeIsolation(
+        "Codex ACP runtime home admin",
+        config.codex.admin,
+      ),
+    );
     if (runAcpSession) {
       results.push(
         await checkAcpSession("Codex ACP session admin", config.codex.admin),
@@ -452,6 +504,12 @@ async function run(): Promise<void> {
   }
   if (config.codex.family.backend === "acp") {
     results.push(checkAcpAuth("Codex ACP auth family", config.codex.family));
+    results.push(
+      checkAcpRuntimeHomeIsolation(
+        "Codex ACP runtime home family",
+        config.codex.family,
+      ),
+    );
     results.push(checkFamilyAcpIsolation(config.codex.family));
     if (runAcpSession) {
       results.push(

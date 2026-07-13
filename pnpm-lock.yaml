@@ -6,7 +6,7 @@ settings:
 
 patchedDependencies:
   '@agentclientprotocol/codex-acp@1.1.2':
-    hash: 817a703bd16d6301c6f38cffa9612b4c59adc112364826c45755a666baf77f39
+    hash: 0076bd9a5d7f08632d4f0c63ee98115d143bc06a551d476831276802988ea535
     path: patches/@agentclientprotocol__codex-acp@1.1.2.patch
 
 importers:
@@ -15,7 +15,7 @@ importers:
     dependencies:
       '@agentclientprotocol/codex-acp':
         specifier: 1.1.2
-        version: 1.1.2(patch_hash=817a703bd16d6301c6f38cffa9612b4c59adc112364826c45755a666baf77f39)
+        version: 1.1.2(patch_hash=0076bd9a5d7f08632d4f0c63ee98115d143bc06a551d476831276802988ea535)
       '@agentclientprotocol/sdk':
         specifier: 1.2.1
         version: 1.2.1(zod@4.4.1)
@@ -274,7 +274,7 @@ packages:
 
 snapshots:
 
-  '@agentclientprotocol/codex-acp@1.1.2(patch_hash=817a703bd16d6301c6f38cffa9612b4c59adc112364826c45755a666baf77f39)':
+  '@agentclientprotocol/codex-acp@1.1.2(patch_hash=0076bd9a5d7f08632d4f0c63ee98115d143bc06a551d476831276802988ea535)':
     dependencies:
       '@agentclientprotocol/sdk': 1.2.1(zod@4.4.1)
       '@openai/codex': 0.144.3

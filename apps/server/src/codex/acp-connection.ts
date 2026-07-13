@@ -1,5 +1,8 @@
 import { spawn, ChildProcess } from "node:child_process";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import fs from "node:fs";
+import http from "node:http";
+import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
@@ -50,6 +53,12 @@ interface AcpGatewayAuth {
   providerName: string;
 }
 
+interface AcpGatewayProxy {
+  baseUrl: string;
+  token: string;
+  close: () => void;
+}
+
 type CodexConfig = Record<string, unknown>;
 
 const ACP_AGENT_MODE_BY_CODEX_MODE = {
@@ -66,12 +75,167 @@ const ACP_AGENT_MODE_BY_SANDBOX_MODE = {
 
 const FAMILY_ACP_PERMISSION_PROFILE = "weixin_family";
 const ACP_PERMISSION_PROFILE_ENV = "CODEX_ACP_PERMISSION_PROFILE";
+const ACP_PROXY_TOKEN_HEADER = "x-weixin-acp-token";
+const CREDENTIAL_ENV_NAME_PATTERN =
+  "(?i)(api_?key|auth_?token|access_?token|refresh_?token|secret|password|credential)";
+const CREDENTIAL_ENV_NAME_REGEX =
+  /(?:API_?KEY|AUTH_?TOKEN|ACCESS_?TOKEN|REFRESH_?TOKEN|SECRET|PASSWORD|CREDENTIAL)/i;
+const SAFE_SHELL_ENV_KEYS = [
+  "PATH",
+  "HOME",
+  "USERPROFILE",
+  "USER",
+  "USERNAME",
+  "LOGNAME",
+  "SHELL",
+  "LANG",
+  "LC_ALL",
+  "TERM",
+  "COLORTERM",
+  "TZ",
+  "NODE_ENV",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+] as const;
+const HOP_BY_HOP_HEADERS = new Set([
+  "connection",
+  "keep-alive",
+  "proxy-authenticate",
+  "proxy-authorization",
+  "proxy-connection",
+  "te",
+  "trailer",
+  "transfer-encoding",
+  "upgrade",
+]);
 
 const UNSAFE_CONFIG_PATH_SEGMENTS = new Set([
   "__proto__",
   "constructor",
   "prototype",
 ]);
+
+function isExpectedProxyToken(value: string | undefined, token: string): boolean {
+  if (!value) {
+    return false;
+  }
+  const supplied = Buffer.from(value);
+  const expected = Buffer.from(token);
+  return supplied.length === expected.length && timingSafeEqual(supplied, expected);
+}
+
+function buildGatewayTargetUrl(baseUrl: string, requestUrl: string): URL {
+  const target = new URL(baseUrl);
+  if (target.protocol !== "http:" && target.protocol !== "https:") {
+    throw new Error("Unsupported upstream protocol");
+  }
+  const incoming = new URL(requestUrl, "http://127.0.0.1");
+  const basePath = target.pathname.replace(/\/+$/, "");
+  target.pathname =
+    basePath &&
+    (incoming.pathname === basePath || incoming.pathname.startsWith(`${basePath}/`))
+      ? incoming.pathname
+      : `${basePath}${incoming.pathname}`;
+  target.search = incoming.search;
+  return target;
+}
+
+function withoutHopByHopHeaders(
+  headers: http.IncomingHttpHeaders,
+): http.OutgoingHttpHeaders {
+  const connectionHeaders = new Set(
+    (Array.isArray(headers.connection)
+      ? headers.connection.join(",")
+      : headers.connection ?? "")
+      .split(",")
+      .map((value) => value.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  return Object.fromEntries(
+    Object.entries(headers).filter(
+      ([name]) =>
+        !HOP_BY_HOP_HEADERS.has(name.toLowerCase()) &&
+        !connectionHeaders.has(name.toLowerCase()),
+    ),
+  );
+}
+
+async function startAcpGatewayProxy(auth: AcpGatewayAuth): Promise<AcpGatewayProxy> {
+  const token = randomBytes(32).toString("base64url");
+  const server = http.createServer((request, response) => {
+    const suppliedToken = request.headers[ACP_PROXY_TOKEN_HEADER];
+    const proxyToken = Array.isArray(suppliedToken) ? suppliedToken[0] : suppliedToken;
+    if (!isExpectedProxyToken(proxyToken, token)) {
+      response.writeHead(401, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Unauthorized");
+      return;
+    }
+
+    let target: URL;
+    try {
+      target = buildGatewayTargetUrl(auth.baseUrl, request.url ?? "/");
+    } catch {
+      response.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+      response.end("Invalid upstream URL");
+      return;
+    }
+
+    const headers = withoutHopByHopHeaders(request.headers);
+    delete headers.host;
+    delete headers[ACP_PROXY_TOKEN_HEADER];
+    headers.authorization = `Bearer ${auth.apiKey}`;
+    const client = target.protocol === "https:" ? https : http;
+    const upstream = client.request(
+      target,
+      {
+        method: request.method,
+        headers,
+      },
+      (upstreamResponse) => {
+        response.writeHead(
+          upstreamResponse.statusCode ?? 502,
+          withoutHopByHopHeaders(upstreamResponse.headers),
+        );
+        upstreamResponse.pipe(response);
+      },
+    );
+    upstream.on("error", () => {
+      if (!response.headersSent) {
+        response.writeHead(502, { "content-type": "text/plain; charset=utf-8" });
+      }
+      response.end("Upstream request failed");
+    });
+    request.on("aborted", () => upstream.destroy());
+    response.on("close", () => {
+      if (!response.writableEnded) {
+        upstream.destroy();
+      }
+    });
+    request.pipe(upstream);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+  const address = server.address();
+  if (!address || typeof address === "string") {
+    server.close();
+    throw new Error("Failed to allocate ACP gateway proxy port");
+  }
+  return {
+    baseUrl: `http://127.0.0.1:${address.port}`,
+    token,
+    close: () => {
+      server.closeAllConnections();
+      server.close();
+    },
+  };
+}
 
 function describeToolCall(update: {
   title?: string | null;
@@ -256,6 +420,69 @@ function findNodeModulesRoot(command: string): string | undefined {
   }
 }
 
+export function resolveAcpRuntimeCodexHome(config: CodexRuntimeConfig): string {
+  return `${path.resolve(config.workspace)}-codex-home`;
+}
+
+function configureAcpRuntimeCodexHome(
+  config: CodexRuntimeConfig,
+  codexConfig: CodexConfig,
+  env: NodeJS.ProcessEnv,
+): void {
+  const runtimeCodexHome = resolveAcpRuntimeCodexHome(config);
+  fs.mkdirSync(runtimeCodexHome, { recursive: true, mode: 0o700 });
+  try {
+    fs.chmodSync(runtimeCodexHome, 0o700);
+  } catch {
+    // Windows may ignore POSIX permissions.
+  }
+  env.CODEX_HOME = runtimeCodexHome;
+  setCodexConfigValue(codexConfig, "cli_auth_credentials_store", "file");
+}
+
+function configureCredentialShellPolicy(
+  config: CodexRuntimeConfig,
+  codexConfig: CodexConfig,
+  env: NodeJS.ProcessEnv,
+  providerCredentialEnvKeys: string[],
+): void {
+  const existing = isJsonObject(codexConfig.shell_environment_policy)
+    ? codexConfig.shell_environment_policy
+    : {};
+  const existingSet = isJsonObject(existing.set) ? existing.set : {};
+  const existingExclude = Array.isArray(existing.exclude)
+    ? existing.exclude.filter((value): value is string => typeof value === "string")
+    : [];
+  const safeSet: Record<string, string> = {};
+  if (!config.acpWorkspaceIsolation) {
+    for (const key of new Set([
+      ...SAFE_SHELL_ENV_KEYS,
+      ...config.envPassthrough,
+    ])) {
+      const value = env[key];
+      if (value !== undefined && !CREDENTIAL_ENV_NAME_REGEX.test(key)) {
+        safeSet[key] = value;
+      }
+    }
+  }
+  setCodexConfigValue(codexConfig, "shell_environment_policy", {
+    ...existing,
+    ...(!config.acpWorkspaceIsolation ? { inherit: "none" } : {}),
+    set: {
+      ...existingSet,
+      ...safeSet,
+      ...Object.fromEntries(
+        [...ACP_SECRET_ENV_KEYS, ...providerCredentialEnvKeys].map((key) => [
+          key,
+          "",
+        ]),
+      ),
+    },
+    exclude: [...new Set([...existingExclude, CREDENTIAL_ENV_NAME_PATTERN])],
+    ignore_default_excludes: false,
+  });
+}
+
 function configureFamilyPermissionProfile(
   config: CodexRuntimeConfig,
   codexConfig: CodexConfig,
@@ -268,6 +495,11 @@ function configureFamilyPermissionProfile(
   // Permission profiles and legacy sandbox settings are mutually exclusive.
   delete codexConfig.sandbox_mode;
   delete codexConfig.sandbox_workspace_write;
+
+  env.RUST_LOG = "info";
+  setCodexConfigValue(codexConfig, "analytics.enabled", false);
+  setCodexConfigValue(codexConfig, "feedback.enabled", false);
+  setCodexConfigValue(codexConfig, "history.persistence", "none");
 
   const filesystem: CodexConfig = {
     ":root": "deny",
@@ -358,26 +590,36 @@ export function buildAcpLaunch(config: CodexRuntimeConfig): {
   configureFamilyPermissionProfile(config, codexConfig, env);
 
   const providerCredentialEnvKeys = collectProviderCredentialEnvKeys(codexConfig);
+  configureCredentialShellPolicy(
+    config,
+    codexConfig,
+    env,
+    providerCredentialEnvKeys,
+  );
   const apiKey = [
     ...ACP_SECRET_ENV_KEYS,
     ...providerCredentialEnvKeys,
   ]
     .map((key) => env[key])
     .find((value): value is string => Boolean(value));
-  if (config.acpWorkspaceIsolation) {
-    for (const key of Object.keys(env)) {
-      if (
-        ACP_SECRET_ENV_KEYS.includes(
-          key as (typeof ACP_SECRET_ENV_KEYS)[number],
-        ) ||
-        providerCredentialEnvKeys.includes(key) ||
-        /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i.test(key)
-      ) {
-        delete env[key];
-      }
-    }
-    delete env.DEFAULT_AUTH_REQUEST;
+  if (config.acpWorkspaceIsolation || (apiKey && config.apiBaseUrl)) {
+    configureAcpRuntimeCodexHome(config, codexConfig, env);
   }
+  for (const key of Object.keys(env)) {
+    if (
+      ACP_SECRET_ENV_KEYS.includes(
+        key as (typeof ACP_SECRET_ENV_KEYS)[number],
+      ) ||
+      providerCredentialEnvKeys.includes(key) ||
+      /(?:^|_)(?:API_KEY|AUTH_TOKEN|ACCESS_TOKEN|REFRESH_TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i.test(
+        key,
+      )
+    ) {
+      delete env[key];
+    }
+  }
+  delete env.CODEX_CLI_HOME;
+  delete env.DEFAULT_AUTH_REQUEST;
 
   if (Object.keys(codexConfig).length > 0) {
     env.CODEX_CONFIG = JSON.stringify(codexConfig);
@@ -399,7 +641,7 @@ export function buildAcpLaunch(config: CodexRuntimeConfig): {
     args: [],
     env,
     ...(apiKey ? { apiKey } : {}),
-    ...(config.acpWorkspaceIsolation && apiKey && config.apiBaseUrl
+    ...(apiKey && config.apiBaseUrl
       ? {
           gatewayAuth: {
             baseUrl: config.apiBaseUrl,
@@ -959,6 +1201,8 @@ function shouldReviewDeniedFamilyPermission(params: {
 export class AcpConnection {
   private process: ChildProcess | undefined;
 
+  private gatewayProxy: AcpGatewayProxy | undefined;
+
   private connection: ClientSideConnection | undefined;
 
   private ready = false;
@@ -1010,6 +1254,11 @@ export class AcpConnection {
     return message;
   }
 
+  private closeGatewayProxy(): void {
+    this.gatewayProxy?.close();
+    this.gatewayProxy = undefined;
+  }
+
   async ensureReady(): Promise<ClientSideConnection> {
     if (this.ready && this.connection) {
       return this.connection;
@@ -1035,6 +1284,7 @@ export class AcpConnection {
     proc.once("exit", (code) => {
       console.warn(`[codex:acp] subprocess exited: ${code ?? "unknown"}`);
       cleanupSubprocessStdio(proc);
+      this.closeGatewayProxy();
       this.ready = false;
       this.loadSessionSupported = false;
       this.additionalDirectoriesSupported = false;
@@ -1182,31 +1432,50 @@ export class AcpConnection {
       `[codex:acp] loadSession=${this.loadSessionSupported}, additionalDirectories=${this.additionalDirectoriesSupported}`,
     );
 
+    let gatewayAuth: AcpGatewayAuth | undefined;
+    if (launch.gatewayAuth) {
+      try {
+        const proxy = await startAcpGatewayProxy(launch.gatewayAuth);
+        this.closeGatewayProxy();
+        this.gatewayProxy = proxy;
+        gatewayAuth = {
+          ...launch.gatewayAuth,
+          baseUrl: proxy.baseUrl,
+          apiKey: proxy.token,
+        };
+      } catch (error) {
+        proc.kill();
+        throw error;
+      }
+    }
+
     const authSelectionEnv = launch.apiKey
       ? { ...launch.env, OPENAI_API_KEY: launch.apiKey }
       : launch.env;
     const authMethod =
       this.config.acpAuthMode === "none"
         ? undefined
-        : launch.gatewayAuth
+        : gatewayAuth
           ? authMethods.find((method) => method.id === "gateway")
           : selectAcpAuthMethod(authMethods, authSelectionEnv);
-    if (launch.gatewayAuth && !authMethod) {
+    if (gatewayAuth && !authMethod) {
+      this.closeGatewayProxy();
+      proc.kill();
       throw new Error(
-        "codex-acp did not advertise gateway authentication required for isolated family ACP",
+        "codex-acp did not advertise gateway authentication required for protected ACP credentials",
       );
     }
     if (authMethod) {
       const authRequest =
-        authMethod.id === "gateway" && launch.gatewayAuth
+        authMethod.id === "gateway" && gatewayAuth
           ? {
               methodId: authMethod.id,
               _meta: {
                 gateway: {
-                  baseUrl: launch.gatewayAuth.baseUrl,
-                  providerName: launch.gatewayAuth.providerName,
+                  baseUrl: gatewayAuth.baseUrl,
+                  providerName: gatewayAuth.providerName,
                   headers: {
-                    Authorization: `Bearer ${launch.gatewayAuth.apiKey}`,
+                    "X-Weixin-ACP-Token": gatewayAuth.apiKey,
                   },
                 },
               },
@@ -1217,10 +1486,16 @@ export class AcpConnection {
               _meta: { "api-key": { apiKey: launch.apiKey } },
             }
           : { methodId: authMethod.id };
-      await Promise.race([
-        conn.authenticate(authRequest),
-        subprocessError,
-      ]);
+      try {
+        await Promise.race([
+          conn.authenticate(authRequest),
+          subprocessError,
+        ]);
+      } catch (error) {
+        this.closeGatewayProxy();
+        proc.kill();
+        throw error;
+      }
       console.log(
         `[codex:acp] authenticated with ${authMethod.name} (${authMethod.id})`,
       );
@@ -1248,6 +1523,7 @@ export class AcpConnection {
     this.sessionPermissions.clear();
     this.lastPermissionDecisionBySession.clear();
     this.connection = undefined;
+    this.closeGatewayProxy();
     if (this.process) {
       const proc = this.process;
       cleanupSubprocessStdio(proc);

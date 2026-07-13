@@ -49,10 +49,13 @@ CODEX_ADMIN_ACP_ARGS=-c sandbox_mode=\"danger-full-access\"
 - 当前会话的 `inbox` 只读；
 - 可写目录的父目录保持拒绝，其他会话目录和系统临时目录不可读写；
 - 工具临时文件统一重定向到 `runtime/family/.tmp`；
+- admin/family ACP host 分别使用独立的 `runtime/admin-codex-home` 和
+  `runtime/family-codex-home`，并禁用系统 keyring 凭据读取；family 线程不落地；
 - 项目 `.env`、Codex home 和系统凭据不可读；
-- 工具子进程只继承显式白名单环境，不继承 API Key；
-- 第三方 Responses 网关通过 ACP gateway 鉴权传 Key，不把 Key 放在 family ACP
-  或 Codex App Server 的启动环境中。
+- family/admin 工具子进程都只继承安全白名单环境和显式 passthrough；
+- bot 主进程只从配置的认证 Codex home 读取 Key；ACP 的 Responses 请求通过仅监听
+  loopback 的本机代理转发，Codex 只拿到一次性本机头，不把真实 Key 放进 ACP/App
+  Server 环境、线程配置、工具，也不会由正常认证链路写入本地日志。
 
 ACP 1.1.2 尚未原生把新版 permission profile 暴露成 ACP mode，因此项目在锁文件
 中固定了一个小范围适配器补丁。`pnpm install --frozen-lockfile` 会自动应用
