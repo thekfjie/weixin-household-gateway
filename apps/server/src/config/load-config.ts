@@ -1,13 +1,21 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   AppConfig,
   CodexAcpAuthMode,
   CodexBackendKind,
   CodexEnvMode,
   CodexMode,
+  CodexProviderProfile,
+  CodexReasoningEffort,
 } from "./types.js";
+import {
+  CODEX_REASONING_EFFORTS,
+  getCodexModelReasoningEfforts,
+  isCodexModelReasoningEffortSupported,
+} from "./reasoning.js";
 import { splitCommandArgs } from "../utils/index.js";
 
 const VALID_CODEX_MODES: readonly CodexMode[] = [
@@ -22,7 +30,6 @@ const VALID_CODEX_ACP_AUTH_MODES: readonly CodexAcpAuthMode[] = [
   "env",
   "none",
 ];
-
 let dotEnvLoaded = false;
 
 function unquoteEnvValue(value: string): string {
@@ -83,6 +90,18 @@ function readEnv(name: string, fallback?: string): string {
 function readOptionalEnv(name: string, fallback: string): string {
   const value = process.env[name]?.trim();
   return value || fallback;
+}
+
+function readCommand(name: string, fallback: string): string {
+  const command = readOptionalEnv(name, fallback);
+  if (
+    path.isAbsolute(command) ||
+    (!command.includes("/") && !command.includes("\\"))
+  ) {
+    return command;
+  }
+
+  return path.resolve(command);
 }
 
 function readBoolean(name: string, fallback: boolean): boolean {
@@ -147,6 +166,23 @@ function readAcpAuthMode(
   }
 
   return raw;
+}
+
+function readReasoningEffort(
+  name: string,
+): CodexReasoningEffort | undefined {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) {
+    return undefined;
+  }
+
+  if (!CODEX_REASONING_EFFORTS.includes(raw as CodexReasoningEffort)) {
+    throw new Error(
+      `Environment variable ${name} is not a valid Codex reasoning effort: ${raw}`,
+    );
+  }
+
+  return raw as CodexReasoningEffort;
 }
 
 function readPositiveInteger(name: string, fallback: number): number {
@@ -221,21 +257,380 @@ function readOptionalTrimmedEnv(name: string): string | undefined {
   return raw || undefined;
 }
 
+function normalizeProviderEnvSuffix(name: string): string {
+  return name
+    .trim()
+    .replace(/[^A-Za-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .toUpperCase();
+}
+
+function validateProviderName(name: string): void {
+  if (!/^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$/.test(name)) {
+    throw new Error(
+      `Provider name must use letters, numbers, dot, dash, or underscore: ${name}`,
+    );
+  }
+
+  if (name.toLowerCase() === "default") {
+    throw new Error("Provider name 'default' is reserved");
+  }
+}
+
+function buildProviderEnvOverrides(params: {
+  apiBaseUrl?: string | undefined;
+  apiKey?: string | undefined;
+  model?: string | undefined;
+}): Record<string, string> {
+  const env: Record<string, string> = {};
+  if (params.apiBaseUrl) {
+    env.CODEX_API_BASE_URL = params.apiBaseUrl;
+    env.CODEX_CLI_BASE_URL = params.apiBaseUrl;
+    // A new endpoint must never inherit credentials from the default provider.
+    env.CODEX_API_KEY = "";
+    env.CODEX_CLI_API_KEY = "";
+    env.OPENAI_API_KEY = "";
+    env.CODEX_ACP_PREFERRED_AUTH_ENV = "";
+  }
+  if (params.apiKey) {
+    env.CODEX_API_KEY = params.apiKey;
+    env.CODEX_CLI_API_KEY = params.apiKey;
+    env.OPENAI_API_KEY = params.apiKey;
+    env.CODEX_ACP_PREFERRED_AUTH_ENV = "OPENAI_API_KEY";
+  }
+  if (params.model) {
+    env.CODEX_API_MODEL = params.model;
+    env.CODEX_CLI_MODEL = params.model;
+  }
+
+  return env;
+}
+
+function readTomlStringValue(text: string, key: string): string | undefined {
+  const match = text.match(
+    new RegExp(
+      `^\\s*${key}\\s*=\\s*("(?:[^"\\\\]|\\\\.)*"|'(?:[^'\\\\]|\\\\.)*')`,
+      "m",
+    ),
+  );
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(match[1]) as string;
+  } catch {
+    return match[1].slice(1, -1);
+  }
+}
+
+function parseCcSwitchSettings(settingsConfig: string): {
+  apiKey?: string;
+  model?: string;
+  reasoningEffort?: CodexReasoningEffort;
+  modelProvider?: string;
+  providerName?: string;
+  baseUrl?: string;
+  wireApi?: string;
+} {
+  let parsed: {
+    auth?: Record<string, unknown>;
+    config?: unknown;
+  } = {};
+  try {
+    parsed = JSON.parse(settingsConfig) as {
+      auth?: Record<string, unknown>;
+      config?: unknown;
+    };
+  } catch {
+    return {};
+  }
+
+  const config = typeof parsed.config === "string" ? parsed.config : "";
+  const apiKey =
+    typeof parsed.auth?.OPENAI_API_KEY === "string"
+      ? parsed.auth.OPENAI_API_KEY
+      : typeof parsed.auth?.CODEX_API_KEY === "string"
+        ? parsed.auth.CODEX_API_KEY
+        : undefined;
+  const model = readTomlStringValue(config, "model");
+  const rawReasoningEffort = readTomlStringValue(
+    config,
+    "model_reasoning_effort",
+  )
+    ?.trim()
+    .toLowerCase();
+  const reasoningEffort =
+    rawReasoningEffort &&
+    CODEX_REASONING_EFFORTS.includes(
+      rawReasoningEffort as CodexReasoningEffort,
+    )
+      ? (rawReasoningEffort as CodexReasoningEffort)
+      : undefined;
+  const modelProvider = readTomlStringValue(config, "model_provider");
+  const providerName = readTomlStringValue(config, "name");
+  const baseUrl = readTomlStringValue(config, "base_url");
+  const wireApi = readTomlStringValue(config, "wire_api");
+
+  return {
+    ...(apiKey ? { apiKey } : {}),
+    ...(model ? { model } : {}),
+    ...(reasoningEffort ? { reasoningEffort } : {}),
+    ...(modelProvider ? { modelProvider } : {}),
+    ...(providerName ? { providerName } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(wireApi ? { wireApi } : {}),
+  };
+}
+
+function resolveCcSwitchDbPath(): string {
+  const configured =
+    process.env.CC_SWITCH_DB_PATH?.trim() ??
+    process.env.CCSWITCH_DB_PATH?.trim();
+  return path.resolve(
+    configured || path.join(os.homedir(), ".cc-switch", "cc-switch.db"),
+  );
+}
+
+function buildProviderAcpArgs(params: {
+  modelProvider?: string | undefined;
+  providerName?: string | undefined;
+  baseUrl?: string | undefined;
+  wireApi?: string | undefined;
+  envKey?: string | undefined;
+}): string[] {
+  if (!params.modelProvider || !params.baseUrl) {
+    return [];
+  }
+
+  const prefix = `model_providers.${params.modelProvider}`;
+  return [
+    "-c",
+    `model_provider=${JSON.stringify(params.modelProvider)}`,
+    ...(params.providerName
+      ? ["-c", `${prefix}.name=${JSON.stringify(params.providerName)}`]
+      : []),
+    "-c",
+    `${prefix}.base_url=${JSON.stringify(params.baseUrl)}`,
+    ...(params.wireApi
+      ? ["-c", `${prefix}.wire_api=${JSON.stringify(params.wireApi)}`]
+      : []),
+    ...(params.envKey
+      ? ["-c", `${prefix}.env_key=${JSON.stringify(params.envKey)}`]
+      : []),
+    "-c",
+    `${prefix}.requires_openai_auth=false`,
+  ];
+}
+
+function readCcSwitchProviderProfiles(): CodexProviderProfile[] {
+  const dbPath = resolveCcSwitchDbPath();
+  if (!fs.existsSync(dbPath)) {
+    return [];
+  }
+
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    const rows = db
+      .prepare(
+        `
+        SELECT id, name, settings_config
+        FROM providers
+        WHERE app_type = 'codex'
+        ORDER BY is_current DESC, sort_index IS NULL, sort_index ASC, name ASC
+        `,
+      )
+      .all() as Array<Record<string, unknown>>;
+    const endpointStatement = db.prepare(
+      `
+      SELECT url
+      FROM provider_endpoints
+      WHERE provider_id = ? AND app_type = 'codex'
+      ORDER BY id ASC
+      LIMIT 1
+      `,
+    );
+
+    return rows
+      .map((row): CodexProviderProfile | undefined => {
+        const parsed = parseCcSwitchSettings(String(row.settings_config ?? ""));
+        const endpoint = endpointStatement.get(String(row.id)) as
+          | { url?: string }
+          | undefined;
+        const apiBaseUrl = parsed.baseUrl ?? endpoint?.url;
+        const model = parsed.model;
+        const apiKey = parsed.apiKey;
+        const rawName = String(row.id).trim();
+        const name =
+          rawName.toLowerCase() === "default" ? "ccswitch-default" : rawName;
+        if (!apiBaseUrl || !apiKey) {
+          return undefined;
+        }
+        try {
+          validateProviderName(name);
+        } catch {
+          return undefined;
+        }
+
+        return {
+          name,
+          displayName: `cc-switch: ${String(row.name)}`,
+          acpArgs: buildProviderAcpArgs({
+            modelProvider:
+              parsed.modelProvider ??
+              `ccswitch_${normalizeProviderEnvSuffix(name).toLowerCase()}`,
+            providerName: parsed.providerName ?? String(row.name),
+            baseUrl: apiBaseUrl,
+            wireApi: parsed.wireApi ?? "responses",
+            envKey: "OPENAI_API_KEY",
+          }),
+          envOverrides: buildProviderEnvOverrides({
+            apiBaseUrl,
+            apiKey,
+            ...(model ? { model } : {}),
+          }),
+          apiBaseUrl,
+          apiKey,
+          ...(model ? { model, apiModel: model } : {}),
+          ...(parsed.reasoningEffort
+            ? { reasoningEffort: parsed.reasoningEffort }
+            : {}),
+        };
+      })
+      .filter((profile): profile is CodexProviderProfile => Boolean(profile));
+  } catch {
+    return [];
+  } finally {
+    try {
+      db?.close();
+    } catch {
+
+    }
+  }
+}
+
+function readProviderProfiles(): CodexProviderProfile[] {
+  const names = readNameList("CODEX_PROVIDER_NAMES");
+  const profiles: CodexProviderProfile[] = [];
+  const seen = new Set<string>();
+  const envSuffixOwners = new Map<string, string>();
+
+  for (const rawName of names) {
+    const name = rawName.trim();
+    validateProviderName(name);
+    const normalized = name.toLowerCase();
+    if (seen.has(normalized)) {
+      throw new Error(`Duplicate provider name: ${name}`);
+    }
+    seen.add(normalized);
+
+    const envSuffix = normalizeProviderEnvSuffix(name);
+    const suffixOwner = envSuffixOwners.get(envSuffix);
+    if (suffixOwner) {
+      throw new Error(
+        `Provider names '${suffixOwner}' and '${name}' use the same environment variable suffix: ${envSuffix}`,
+      );
+    }
+    envSuffixOwners.set(envSuffix, name);
+
+    const prefix = `CODEX_PROVIDER_${envSuffix}`;
+    const apiKeyEnv = readOptionalTrimmedEnv(`${prefix}_API_KEY_ENV`);
+    const apiKey =
+      readOptionalTrimmedEnv(`${prefix}_API_KEY`) ??
+      (apiKeyEnv ? readOptionalTrimmedEnv(apiKeyEnv) : undefined);
+    const apiBaseUrl = readOptionalTrimmedEnv(`${prefix}_API_BASE_URL`);
+    const apiModel = readOptionalTrimmedEnv(`${prefix}_API_MODEL`);
+    const model = readOptionalTrimmedEnv(`${prefix}_MODEL`);
+    const backend = readOptionalTrimmedEnv(`${prefix}_BACKEND`);
+    if (
+      backend &&
+      !VALID_CODEX_BACKENDS.includes(backend as CodexBackendKind)
+    ) {
+      throw new Error(
+        `Environment variable ${prefix}_BACKEND is not a valid Codex backend: ${backend}`,
+      );
+    }
+    const effectiveModel = apiModel ?? model;
+    const displayName = readOptionalTrimmedEnv(`${prefix}_DISPLAY_NAME`);
+    const reasoningEffort = readReasoningEffort(`${prefix}_REASONING_EFFORT`);
+    const codexHome = readOptionalPath(`${prefix}_CODEX_HOME`);
+    if (reasoningEffort) {
+      for (const profileModel of new Set([model, apiModel].filter(Boolean))) {
+        if (
+          !isCodexModelReasoningEffortSupported(
+            profileModel as string,
+            reasoningEffort,
+          )
+        ) {
+          const supported =
+            getCodexModelReasoningEfforts(profileModel as string) ?? [];
+          throw new Error(
+            `${prefix}_REASONING_EFFORT=${reasoningEffort} is not supported by ${profileModel}; choose: ${supported.join(", ")}`,
+          );
+        }
+      }
+    }
+    const generatedAcpArgs = apiBaseUrl
+      ? buildProviderAcpArgs({
+          modelProvider: `gateway_${normalizeProviderEnvSuffix(name).toLowerCase()}`,
+          providerName: displayName ?? name,
+          baseUrl: apiBaseUrl,
+          wireApi: "responses",
+          ...(apiKey ? { envKey: "OPENAI_API_KEY" } : {}),
+        })
+      : [];
+    const profile: CodexProviderProfile = {
+      name,
+      acpArgs: [...generatedAcpArgs, ...readAcpArgs(`${prefix}_ACP_ARGS`)],
+      envOverrides: buildProviderEnvOverrides({
+        ...(apiBaseUrl ? { apiBaseUrl } : {}),
+        ...(apiKey ? { apiKey } : {}),
+        ...(effectiveModel ? { model: effectiveModel } : {}),
+      }),
+      ...(displayName ? { displayName } : {}),
+      ...(backend ? { backend: backend as CodexBackendKind } : {}),
+      ...(apiBaseUrl ? { apiBaseUrl } : {}),
+      ...(apiKey ? { apiKey } : {}),
+      ...(apiModel ? { apiModel } : {}),
+      ...(model ? { model } : {}),
+      ...(reasoningEffort ? { reasoningEffort } : {}),
+      ...(codexHome ? { codexHome } : {}),
+    };
+    profiles.push(profile);
+  }
+
+  const profileNames = new Set(profiles.map((profile) => profile.name.toLowerCase()));
+  for (const profile of readCcSwitchProviderProfiles()) {
+    if (!profileNames.has(profile.name.toLowerCase())) {
+      profiles.push(profile);
+      profileNames.add(profile.name.toLowerCase());
+    }
+  }
+
+  return profiles;
+}
+
+function resolveProjectBinary(name: "codex" | "codex-acp"): string {
+  const executable = process.platform === "win32" ? `${name}.cmd` : name;
+  return path.resolve(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "..",
+    "node_modules",
+    ".bin",
+    executable,
+  );
+}
+
 function resolveDefaultCodexCommand(): string {
-  return process.platform === "win32" ? "codex.cmd" : "codex";
+  return resolveProjectBinary("codex");
 }
 
 function resolveDefaultAcpCommand(): string {
-  const localBin = path.resolve(
-    "node_modules",
-    ".bin",
-    process.platform === "win32" ? "codex-acp.CMD" : "codex-acp",
-  );
-  return fs.existsSync(localBin)
-    ? localBin
-    : process.platform === "win32"
-      ? "codex-acp.cmd"
-      : "codex-acp";
+  return resolveProjectBinary("codex-acp");
 }
 
 function resolveDefaultCodexWorkspace(name: "admin" | "family"): string {
@@ -245,7 +640,7 @@ function resolveDefaultCodexWorkspace(name: "admin" | "family"): string {
 }
 
 function readDefaultChatModel(): string {
-  return readOptionalEnv("CODEX_DEFAULT_MODEL", "gpt-5.5");
+  return readOptionalEnv("CODEX_DEFAULT_MODEL", "gpt-5.6-sol");
 }
 
 function resolveBundledPromptPath(relativePath: string): string {
@@ -293,6 +688,8 @@ export function loadConfig(): AppConfig {
   const sharedCliBaseUrl = readOptionalTrimmedEnv("CODEX_CLI_BASE_URL");
   const sharedCliApiKey = readOptionalTrimmedEnv("CODEX_CLI_API_KEY");
   const sharedCliModel = readOptionalTrimmedEnv("CODEX_CLI_MODEL");
+  const sharedReasoningEffort =
+    readReasoningEffort("CODEX_CLI_REASONING_EFFORT") ?? "high";
   const codexApiBaseUrl =
     readOptionalTrimmedEnv("CODEX_API_BASE_URL") ?? sharedCliBaseUrl;
   const codexApiKey =
@@ -359,9 +756,12 @@ export function loadConfig(): AppConfig {
     codex: {
       admin: {
         backend: readBackend("CODEX_ADMIN_BACKEND", codexBackend),
-        command: readEnv("CODEX_ADMIN_COMMAND", resolveDefaultCodexCommand()),
+        command: readCommand(
+          "CODEX_ADMIN_COMMAND",
+          resolveDefaultCodexCommand(),
+        ),
         args: readCodexArgs("CODEX_ADMIN_ARGS"),
-        acpCommand: readOptionalEnv(
+        acpCommand: readCommand(
           "CODEX_ADMIN_ACP_COMMAND",
           resolveDefaultAcpCommand(),
         ),
@@ -370,6 +770,7 @@ export function loadConfig(): AppConfig {
           "CODEX_ADMIN_ACP_AUTH_MODE",
           codexAcpAuthMode,
         ),
+        acpWorkspaceIsolation: false,
         apiBaseUrl: readOptionalTrimmedEnv("CODEX_ADMIN_API_BASE_URL") ?? codexApiBaseUrl,
         apiKey: readOptionalTrimmedEnv("CODEX_ADMIN_API_KEY") ?? codexApiKey,
         apiModel: readOptionalEnv("CODEX_ADMIN_API_MODEL", codexApiModel),
@@ -378,6 +779,8 @@ export function loadConfig(): AppConfig {
           "wechat-admin",
         ),
         codexHome: readOptionalPath("CODEX_ADMIN_HOME") ?? readOptionalPath("CODEX_CLI_HOME"),
+        envOverrides: {},
+        roleOverrides: { reasoningEffort: sharedReasoningEffort },
         mode: adminMode,
         timeoutMs: readPositiveInteger(
           "CODEX_ADMIN_TIMEOUT_MS",
@@ -399,9 +802,12 @@ export function loadConfig(): AppConfig {
       },
       family: {
         backend: readBackend("CODEX_FAMILY_BACKEND", codexBackend),
-        command: readEnv("CODEX_FAMILY_COMMAND", resolveDefaultCodexCommand()),
+        command: readCommand(
+          "CODEX_FAMILY_COMMAND",
+          resolveDefaultCodexCommand(),
+        ),
         args: readCodexArgs("CODEX_FAMILY_ARGS"),
-        acpCommand: readOptionalEnv(
+        acpCommand: readCommand(
           "CODEX_FAMILY_ACP_COMMAND",
           resolveDefaultAcpCommand(),
         ),
@@ -410,6 +816,7 @@ export function loadConfig(): AppConfig {
           "CODEX_FAMILY_ACP_AUTH_MODE",
           codexAcpAuthMode,
         ),
+        acpWorkspaceIsolation: true,
         apiBaseUrl: readOptionalTrimmedEnv("CODEX_FAMILY_API_BASE_URL") ?? codexApiBaseUrl,
         apiKey: readOptionalTrimmedEnv("CODEX_FAMILY_API_KEY") ?? codexApiKey,
         apiModel: readOptionalEnv("CODEX_FAMILY_API_MODEL", codexApiModel),
@@ -418,6 +825,8 @@ export function loadConfig(): AppConfig {
           "wechat-family",
         ),
         codexHome: readOptionalPath("CODEX_FAMILY_HOME") ?? readOptionalPath("CODEX_CLI_HOME"),
+        envOverrides: {},
+        roleOverrides: { reasoningEffort: sharedReasoningEffort },
         mode: familyMode,
         timeoutMs: readPositiveInteger(
           "CODEX_FAMILY_TIMEOUT_MS",
@@ -437,6 +846,7 @@ export function loadConfig(): AppConfig {
           timeoutMs: readPositiveInteger("CODEX_FAMILY_PERMISSION_REVIEW_TIMEOUT_MS", 8_000),
         },
       },
+      providers: readProviderProfiles(),
     },
     prompts: {
       adminAcp: readPromptTemplate("PROMPT_ADMIN_ACP_FILE", "prompts/admin-acp.md"),

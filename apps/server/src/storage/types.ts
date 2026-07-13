@@ -1,4 +1,4 @@
-import { UserRole } from "../config/types.js";
+import { CodexProviderRoute, UserRole } from "../config/types.js";
 
 export interface WechatAccountRecord {
   id: string;
@@ -52,5 +52,12 @@ export interface CodexRoleSettingsRecord {
   role: UserRole;
   model?: string;
   reasoningEffort?: string;
+  updatedAt: string;
+}
+
+export interface CodexProviderRouteSettingsRecord {
+  route: CodexProviderRoute;
+  providerName?: string;
+  locked: boolean;
   updatedAt: string;
 }

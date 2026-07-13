@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import {
+  getCodexModelReasoningEfforts,
+  isCodexModelReasoningEffortSupported,
+  isCodexReasoningEffort,
+} from "./config/reasoning.js";
 
 type CodexCliAuthMode = "login" | "api_key";
 
@@ -21,7 +26,7 @@ function usage(): string {
     "  CODEX_CLI_AUTH_MODE=api_key",
     "  CODEX_CLI_BASE_URL=https://你的-sub2api/v1",
     "  CODEX_CLI_API_KEY=sk-...",
-    "  CODEX_CLI_MODEL=gpt-5.5",
+    "  CODEX_CLI_MODEL=gpt-5.6-sol",
   ].join("\n");
 }
 
@@ -160,11 +165,21 @@ function buildConfigToml(env: DotEnv): string {
     "CODEX_CLI_PROVIDER_NAME",
     baseUrl ? "OpenAI-compatible" : "OpenAI",
   );
+  const apiKey = readValue(env, "CODEX_CLI_API_KEY");
   const wireApi = readValue(env, "CODEX_CLI_WIRE_API", "responses");
-  const defaultModel = readValue(env, "CODEX_DEFAULT_MODEL", "gpt-5.5");
+  const defaultModel = readValue(env, "CODEX_DEFAULT_MODEL", "gpt-5.6-sol");
   const model = readValue(env, "CODEX_CLI_MODEL", defaultModel);
   const reviewModel = readValue(env, "CODEX_CLI_REVIEW_MODEL", model);
   const reasoningEffort = readValue(env, "CODEX_CLI_REASONING_EFFORT", "high");
+  if (!isCodexReasoningEffort(reasoningEffort)) {
+    throw new Error(`CODEX_CLI_REASONING_EFFORT 不是有效档位：${reasoningEffort}`);
+  }
+  if (!isCodexModelReasoningEffortSupported(model, reasoningEffort)) {
+    const supported = getCodexModelReasoningEfforts(model) ?? [];
+    throw new Error(
+      `${model} 不支持 reasoning=${reasoningEffort}；可选：${supported.join(", ")}`,
+    );
+  }
   const disableResponseStorage = readBool(
     env,
     "CODEX_CLI_DISABLE_RESPONSE_STORAGE",
@@ -188,6 +203,7 @@ function buildConfigToml(env: DotEnv): string {
         `name = ${tomlString(providerName)}`,
         `base_url = ${tomlString(baseUrl)}`,
         `wire_api = ${tomlString(wireApi)}`,
+        ...(apiKey ? [`env_key = ${tomlString("OPENAI_API_KEY")}`] : []),
         "requires_openai_auth = false",
         "",
       ]

@@ -6,6 +6,7 @@ export interface CodexInvocation {
   codexHome?: string | undefined;
   envMode: "inherit" | "minimal";
   envPassthrough: string[];
+  envOverrides: Record<string, string>;
   mode: CodexMode;
   timeoutMs: number;
   workspace: string;

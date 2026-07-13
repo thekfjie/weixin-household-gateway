@@ -352,6 +352,45 @@ function isStreamingUnsupported(
   );
 }
 
+function isReasoningParameterUnsupported(
+  status: number,
+  payload:
+    | ChatCompletionResponse
+    | ResponsesApiResponse
+    | undefined,
+  responseText: string,
+): boolean {
+  if (status !== 400 && status !== 422) {
+    return false;
+  }
+
+  const message = [
+    payload?.error?.message,
+    payload?.error?.type,
+    payload?.error?.code,
+    responseText,
+  ]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  if (!/reasoning(?:[._\s-]effort)?/.test(message)) {
+    return false;
+  }
+
+  return (
+    /(?:unknown|unrecognized|unexpected|unsupported|invalid)\s+(?:request\s+)?(?:parameter|field|argument|property)/.test(
+      message,
+    ) ||
+    /(?:parameter|field|argument|property).*(?:unknown|unrecognized|unexpected|unsupported|not supported|not permitted)/.test(
+      message,
+    ) ||
+    /does not support (?:the )?(?:parameter|field|argument|property)/.test(
+      message,
+    ) ||
+    /extra (?:inputs?|fields?|properties?).*not permitted/.test(message)
+  );
+}
+
 async function parseJsonResponse<T>(
   response: Response,
 ): Promise<{ text: string; payload?: T }> {
@@ -493,6 +532,10 @@ export class ApiCodexBackend implements CodexBackend {
 
   private chatStreamUnsupportedUntil = 0;
 
+  private responsesReasoningUnsupportedUntil = 0;
+
+  private chatReasoningUnsupportedUntil = 0;
+
   private readonly activeControllers = new Map<string, AbortController>();
 
   private readonly cancelledConversations = new Set<string>();
@@ -536,6 +579,82 @@ export class ApiCodexBackend implements CodexBackend {
     this.chatStreamUnsupportedUntil = 0;
   }
 
+  private shouldSendReasoning(wireApi: "responses" | "chat"): boolean {
+    const unsupportedUntil =
+      wireApi === "responses"
+        ? this.responsesReasoningUnsupportedUntil
+        : this.chatReasoningUnsupportedUntil;
+    return Date.now() >= unsupportedUntil;
+  }
+
+  private markReasoningUnsupported(wireApi: "responses" | "chat"): void {
+    if (wireApi === "responses") {
+      this.responsesReasoningUnsupportedUntil =
+        Date.now() + RESPONSES_UNSUPPORTED_TTL_MS;
+      return;
+    }
+    this.chatReasoningUnsupportedUntil =
+      Date.now() + RESPONSES_UNSUPPORTED_TTL_MS;
+  }
+
+  private clearReasoningUnsupported(wireApi: "responses" | "chat"): void {
+    if (wireApi === "responses") {
+      this.responsesReasoningUnsupportedUntil = 0;
+      return;
+    }
+    this.chatReasoningUnsupportedUntil = 0;
+  }
+
+  private async fetchApi(params: {
+    wireApi: "responses" | "chat";
+    url: string;
+    requestBody: Record<string, unknown>;
+    controller: AbortController;
+  }): Promise<Response> {
+    const reasoningEffort = this.config.roleOverrides?.reasoningEffort;
+    const includeReasoning = Boolean(
+      reasoningEffort && this.shouldSendReasoning(params.wireApi),
+    );
+    const requestBody = includeReasoning
+      ? {
+          ...params.requestBody,
+          ...(params.wireApi === "responses"
+            ? { reasoning: { effort: reasoningEffort } }
+            : { reasoning_effort: reasoningEffort }),
+        }
+      : params.requestBody;
+    const send = (body: Record<string, unknown>): Promise<Response> =>
+      fetch(params.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+        body: JSON.stringify(body),
+        signal: params.controller.signal,
+      });
+
+    let response = await send(requestBody);
+    if (!includeReasoning) {
+      return response;
+    }
+    if (response.ok) {
+      this.clearReasoningUnsupported(params.wireApi);
+      return response;
+    }
+
+    const { text, payload } = await parseJsonResponse<
+      ChatCompletionResponse | ResponsesApiResponse
+    >(response.clone());
+    if (!isReasoningParameterUnsupported(response.status, payload, text)) {
+      return response;
+    }
+
+    this.markReasoningUnsupported(params.wireApi);
+    response = await send(params.requestBody);
+    return response;
+  }
+
   private async runResponses(
     request: CodexBackendRequest,
     controller: AbortController,
@@ -554,17 +673,14 @@ export class ApiCodexBackend implements CodexBackend {
       input: buildResponsesInput(request),
     };
     if (request.onTextDelta && this.shouldTryResponsesStream()) {
-      const streamResponse = await fetch(buildResponsesUrl(this.config.apiBaseUrl!), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({
+      const streamResponse = await this.fetchApi({
+        wireApi: "responses",
+        url: buildResponsesUrl(this.config.apiBaseUrl!),
+        requestBody: {
           ...requestBody,
           stream: true,
-        }),
-        signal: controller.signal,
+        },
+        controller,
       });
       if (streamResponse.ok && isEventStream(streamResponse)) {
         this.clearResponsesUnsupported();
@@ -624,14 +740,11 @@ export class ApiCodexBackend implements CodexBackend {
       }
     }
 
-    const response = await fetch(buildResponsesUrl(this.config.apiBaseUrl!), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.config.apiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
+    const response = await this.fetchApi({
+      wireApi: "responses",
+      url: buildResponsesUrl(this.config.apiBaseUrl!),
+      requestBody,
+      controller,
     });
 
     const { text, payload } = await parseJsonResponse<ResponsesApiResponse>(response);
@@ -696,17 +809,14 @@ export class ApiCodexBackend implements CodexBackend {
       messages: buildChatCompletionMessages(request),
     };
     if (request.onTextDelta && this.shouldTryChatStream()) {
-      const streamResponse = await fetch(buildChatCompletionsUrl(this.config.apiBaseUrl!), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${this.config.apiKey}`,
-        },
-        body: JSON.stringify({
+      const streamResponse = await this.fetchApi({
+        wireApi: "chat",
+        url: buildChatCompletionsUrl(this.config.apiBaseUrl!),
+        requestBody: {
           ...requestBody,
           stream: true,
-        }),
-        signal: controller.signal,
+        },
+        controller,
       });
       if (streamResponse.ok && isEventStream(streamResponse)) {
         this.clearChatStreamUnsupported();
@@ -755,14 +865,11 @@ export class ApiCodexBackend implements CodexBackend {
       }
     }
 
-    const response = await fetch(buildChatCompletionsUrl(this.config.apiBaseUrl!), {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${this.config.apiKey}`,
-      },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
+    const response = await this.fetchApi({
+      wireApi: "chat",
+      url: buildChatCompletionsUrl(this.config.apiBaseUrl!),
+      requestBody,
+      controller,
     });
 
     const { text, payload } = await parseJsonResponse<ChatCompletionResponse>(response);

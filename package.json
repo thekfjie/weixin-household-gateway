@@ -28,8 +28,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@agentclientprotocol/sdk": "^0.21.0",
-    "@zed-industries/codex-acp": "^0.14.0",
+    "@agentclientprotocol/codex-acp": "1.1.2",
+    "@agentclientprotocol/sdk": "1.2.1",
+    "@openai/codex": "0.144.3",
     "qrcode": "^1.5.4"
   }
 }

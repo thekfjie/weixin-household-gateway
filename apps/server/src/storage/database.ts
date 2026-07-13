@@ -1,15 +1,22 @@
 import fs from "node:fs";
 import path from "node:path";
 import { DatabaseSync } from "node:sqlite";
-import { UserRole } from "../config/types.js";
+import { CodexProviderRoute, UserRole } from "../config/types.js";
 import { SQLITE_SCHEMA } from "./schema.js";
 import {
   AttachmentRecord,
+  CodexProviderRouteSettingsRecord,
   CodexRoleSettingsRecord,
   MessageRecord,
   SessionRecord,
   WechatAccountRecord,
 } from "./types.js";
+
+const CODEX_PROVIDER_ROUTES: readonly CodexProviderRoute[] = [
+  "admin-acp",
+  "family-api",
+  "family-acp",
+];
 
 function ensureParentDir(target: string): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -71,6 +78,17 @@ function toCodexRoleSettingsRecord(
     ...(row.reasoning_effort
       ? { reasoningEffort: String(row.reasoning_effort) }
       : {}),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+function toCodexProviderRouteSettingsRecord(
+  row: Record<string, unknown>,
+): CodexProviderRouteSettingsRecord {
+  return {
+    route: String(row.route) as CodexProviderRoute,
+    ...(row.provider_name ? { providerName: String(row.provider_name) } : {}),
+    locked: Number(row.locked ?? 0) !== 0,
     updatedAt: String(row.updated_at),
   };
 }
@@ -273,6 +291,61 @@ export class AppDatabase {
     const saved = this.getCodexRoleSettings(input.role);
     if (!saved) {
       throw new Error(`Failed to save codex role settings: ${input.role}`);
+    }
+
+    return saved;
+  }
+
+  listCodexProviderRouteSettings(): CodexProviderRouteSettingsRecord[] {
+    const rows = this.db
+      .prepare("SELECT * FROM codex_provider_routes ORDER BY route ASC")
+      .all() as Record<string, unknown>[];
+    return rows.map(toCodexProviderRouteSettingsRecord);
+  }
+
+  getCodexProviderRouteSettings(
+    route: CodexProviderRoute,
+  ): CodexProviderRouteSettingsRecord | undefined {
+    const statement = this.db.prepare(
+      "SELECT * FROM codex_provider_routes WHERE route = ?",
+    );
+    const row = statement.get(route) as Record<string, unknown> | undefined;
+    return row ? toCodexProviderRouteSettingsRecord(row) : undefined;
+  }
+
+  saveCodexProviderRouteSettings(input: {
+    route: CodexProviderRoute;
+    providerName?: string;
+    locked?: boolean;
+  }): CodexProviderRouteSettingsRecord {
+    if (!CODEX_PROVIDER_ROUTES.includes(input.route)) {
+      throw new Error(`Invalid provider route: ${input.route}`);
+    }
+
+    const now = createNow();
+    const existing = this.getCodexProviderRouteSettings(input.route);
+    const providerName =
+      input.providerName !== undefined
+        ? input.providerName.trim()
+        : existing?.providerName;
+    const locked = input.locked ?? existing?.locked ?? false;
+    this.db
+      .prepare(
+        `
+        INSERT INTO codex_provider_routes (
+          route, provider_name, locked, updated_at
+        ) VALUES (?, ?, ?, ?)
+        ON CONFLICT(route) DO UPDATE SET
+          provider_name = excluded.provider_name,
+          locked = excluded.locked,
+          updated_at = excluded.updated_at
+        `,
+      )
+      .run(input.route, providerName || null, locked ? 1 : 0, now);
+
+    const saved = this.getCodexProviderRouteSettings(input.route);
+    if (!saved) {
+      throw new Error(`Failed to save codex provider route: ${input.route}`);
     }
 
     return saved;

@@ -26,7 +26,7 @@ TIMEZONE="${DEFAULT_TIMEZONE}"
 CODEX_CLI_AUTH_MODE="api_key"
 CODEX_CLI_BASE_URL=""
 CODEX_CLI_API_KEY=""
-CODEX_DEFAULT_MODEL="gpt-5.5"
+CODEX_DEFAULT_MODEL="gpt-5.6-sol"
 CODEX_CLI_MODEL="${CODEX_DEFAULT_MODEL}"
 CODEX_CLI_REVIEW_MODEL="gpt-5.5"
 CODEX_CLI_REASONING_EFFORT="high"
@@ -43,6 +43,8 @@ SKIP_LOGIN=0
 FORCE_LOGIN=0
 NO_START=0
 APP_DIR_MARKED_CREATED=0
+SERVICE_WAS_ACTIVE=0
+SERVICE_RESTARTED=0
 
 APP_DIR_CREATED_BY_INSTALLER=0
 DATA_DIR_CREATED_BY_INSTALLER=0
@@ -77,7 +79,18 @@ service_user_corepack_home() {
   printf '%s\n' "$(service_user_home)/.cache/node/corepack"
 }
 
+project_codex_command() {
+  printf '%s\n' "${APP_DIR}/node_modules/.bin/codex"
+}
+
 resolve_existing_codex_command() {
+  local project_codex
+  project_codex="$(project_codex_command)"
+  if [[ -x "${project_codex}" ]]; then
+    printf '%s\n' "${project_codex}"
+    return 0
+  fi
+
   local managed_codex
   managed_codex="$(service_user_pnpm_home)/codex"
   if [[ -x "${managed_codex}" ]]; then
@@ -94,15 +107,12 @@ resolve_existing_codex_command() {
 }
 
 resolve_configurable_codex_command() {
-  if existing_command="$(resolve_existing_codex_command 2>/dev/null)"; then
-    printf '%s\n' "${existing_command}"
-    return 0
-  fi
-
-  printf '%s\n' "$(service_user_pnpm_home)/codex"
+  project_codex_command
 }
 
 cleanup() {
+  local exit_code=$?
+
   if [[ -n "${TMP_ENV_FILE}" && -f "${TMP_ENV_FILE}" ]]; then
     rm -f "${TMP_ENV_FILE}"
   fi
@@ -110,6 +120,19 @@ cleanup() {
   if [[ -n "${TMP_SERVICE_FILE}" && -f "${TMP_SERVICE_FILE}" ]]; then
     rm -f "${TMP_SERVICE_FILE}"
   fi
+
+  if [[
+    "${exit_code}" -ne 0 &&
+    "${SERVICE_WAS_ACTIVE}" -eq 1 &&
+    "${SERVICE_RESTARTED}" -eq 0
+  ]]; then
+    echo "安装失败，尝试恢复原服务：${SERVICE_NAME}" >&2
+    if ! sudo systemctl start "${SERVICE_NAME}"; then
+      echo "原服务恢复失败，请手动检查：systemctl status ${SERVICE_NAME}" >&2
+    fi
+  fi
+
+  return "${exit_code}"
 }
 
 trap cleanup EXIT
@@ -130,9 +153,9 @@ usage() {
       --codex-auth-mode MODE        api_key|login，默认 api_key
       --codex-base-url URL          第三方兼容 API Base URL
       --codex-api-key KEY           第三方兼容 API Key
-      --codex-model MODEL           对话模型，默认 gpt-5.5
+      --codex-model MODEL           对话模型，默认 gpt-5.6-sol
       --codex-review-model MODEL    压缩/回顾模型，默认 gpt-5.5
-      --codex-reasoning-effort LVL  思考强度：low|medium|high|xhigh，默认 high
+      --codex-reasoning-effort LVL  思考强度：none|minimal|low|medium|high|xhigh|max|ultra，默认 high
       --family-permission-review-enabled BOOL  family 小模型权限审核 true|false，默认 true
       --family-permission-review-model MODEL   family 小模型权限审核模型，默认 gpt-5.4-mini
       --user-mode current|dedicated 服务用户模式，默认 current
@@ -394,43 +417,17 @@ ensure_node_runtime() {
 }
 
 ensure_codex_cli() {
-  if command_is_available "${ADMIN_COMMAND}" && command_is_available "${FAMILY_COMMAND}"; then
-    return
+  local failed=0
+  if ! command_is_available "${ADMIN_COMMAND}"; then
+    echo "admin Codex 命令不可用：${ADMIN_COMMAND}" >&2
+    failed=1
   fi
-
-  local managed_codex
-  managed_codex="$(resolve_codex_command)"
-
-  echo "未检测到可用的 Codex CLI。"
-  if ! prompt_yes_no "是否现在用 pnpm 为服务用户安装受管的 @openai/codex 到 $(service_user_pnpm_home)？" "y"; then
-    echo "缺少 codex。请先安装 Codex CLI 后再继续。" >&2
-    exit 1
+  if ! command_is_available "${FAMILY_COMMAND}"; then
+    echo "family Codex 命令不可用：${FAMILY_COMMAND}" >&2
+    failed=1
   fi
-
-  local user_home
-  local user_pnpm_home
-  local user_corepack_home
-  user_home="$(service_user_home)"
-  user_pnpm_home="$(service_user_pnpm_home)"
-  user_corepack_home="$(service_user_corepack_home)"
-
-  if [[ "${SERVICE_USER}" == "$(id -un)" ]]; then
-    HOME="${user_home}" \
-    COREPACK_HOME="${user_corepack_home}" \
-    PNPM_HOME="${user_pnpm_home}" \
-    PATH="${user_pnpm_home}:${PATH}" \
-    bash -lc "cd \"${APP_DIR}\" && corepack enable >/dev/null 2>&1 || true; corepack prepare \"pnpm@${PNPM_VERSION}\" --activate >/dev/null 2>&1 || true; pnpm add -g @openai/codex"
-  else
-    sudo -u "${SERVICE_USER}" -H env \
-      HOME="${user_home}" \
-      COREPACK_HOME="${user_corepack_home}" \
-      PNPM_HOME="${user_pnpm_home}" \
-      PATH="${user_pnpm_home}:${PATH}" \
-      bash -lc "cd \"${APP_DIR}\" && corepack enable >/dev/null 2>&1 || true; corepack prepare \"pnpm@${PNPM_VERSION}\" --activate >/dev/null 2>&1 || true; pnpm add -g @openai/codex"
-  fi
-
-  if [[ ! -x "${managed_codex}" ]]; then
-    echo "安装后仍未找到受管的 codex 命令：${managed_codex}" >&2
+  if [[ "${failed}" -ne 0 ]]; then
+    echo "默认应使用项目隔离命令：$(project_codex_command)" >&2
     exit 1
   fi
 }
@@ -447,6 +444,32 @@ validate_choice() {
 
   echo "无效取值：${value}" >&2
   exit 1
+}
+
+validate_model_reasoning_effort() {
+  local model="$1"
+  local effort="$2"
+  local allowed=""
+
+  case "${model}" in
+    gpt-5.6-sol|gpt-5.6-terra)
+      allowed="low medium high xhigh max ultra"
+      ;;
+    gpt-5.6-luna)
+      allowed="low medium high xhigh max"
+      ;;
+    gpt-5.5|gpt-5.4|gpt-5.4-mini|gpt-5.2|codex-auto-review)
+      allowed="low medium high xhigh"
+      ;;
+    *)
+      return
+      ;;
+  esac
+
+  if [[ " ${allowed} " != *" ${effort} "* ]]; then
+    echo "模型 ${model} 不支持思考强度 ${effort}；可选：${allowed// /|}" >&2
+    exit 1
+  fi
 }
 
 parse_args() {
@@ -720,7 +743,7 @@ configure_interactively() {
   fi
   CODEX_CLI_MODEL="$(prompt_default "Codex 对话模型" "${CODEX_CLI_MODEL}")"
   CODEX_CLI_REVIEW_MODEL="$(prompt_default "Codex 压缩/回顾模型" "${CODEX_CLI_REVIEW_MODEL}")"
-  CODEX_CLI_REASONING_EFFORT="$(prompt_default "Codex 思考强度(low/medium/high/xhigh)" "${CODEX_CLI_REASONING_EFFORT}")"
+  CODEX_CLI_REASONING_EFFORT="$(prompt_default "Codex 思考强度(none/minimal/low/medium/high/xhigh/max/ultra)" "${CODEX_CLI_REASONING_EFFORT}")"
   CODEX_FAMILY_PERMISSION_REVIEW_ENABLED="$(prompt_default "family 小模型权限审核(true/false)" "${CODEX_FAMILY_PERMISSION_REVIEW_ENABLED}")"
   CODEX_FAMILY_PERMISSION_REVIEW_MODEL="$(prompt_default "family 小模型权限审核模型" "${CODEX_FAMILY_PERMISSION_REVIEW_MODEL}")"
 
@@ -769,6 +792,16 @@ configure_interactively() {
   validate_choice "${USER_MODE}" current dedicated
   validate_choice "${PERMISSION_MODE}" none limited full
   validate_choice "${LOGIN_ROLE}" admin family
+  validate_choice "${CODEX_CLI_REASONING_EFFORT}" none minimal low medium high xhigh max ultra
+  validate_model_reasoning_effort "${CODEX_CLI_MODEL}" "${CODEX_CLI_REASONING_EFFORT}"
+}
+
+stop_existing_service() {
+  if sudo systemctl is-active --quiet "${SERVICE_NAME}"; then
+    SERVICE_WAS_ACTIVE=1
+    echo "停止现有服务，准备安全更新依赖和构建产物：${SERVICE_NAME}"
+    sudo systemctl stop "${SERVICE_NAME}"
+  fi
 }
 
 ensure_service_user() {
@@ -1304,6 +1337,7 @@ main() {
   fi
 
   ensure_bubblewrap
+  stop_existing_service
   sync_app_dir
   prepare_system_backups
   install_env_and_service
@@ -1312,6 +1346,7 @@ main() {
   configure_codex_cli
   run_login_if_needed
   start_service
+  SERVICE_RESTARTED=1
   run_post_install_doctor
   write_install_state
   print_summary

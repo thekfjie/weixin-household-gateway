@@ -19,6 +19,7 @@ export type BuiltInCommand =
   | "/files"
   | "/accounts"
   | "/codex"
+  | "/provider"
   | "/output";
 
 export interface ParsedCommand {

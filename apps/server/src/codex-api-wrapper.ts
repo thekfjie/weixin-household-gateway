@@ -43,7 +43,7 @@ async function run(): Promise<void> {
   const prompt = readPrompt(argv);
   const baseUrl = readEnv("CODEX_API_BASE_URL");
   const apiKey = readEnv("CODEX_API_KEY");
-  const model = readEnv("CODEX_API_MODEL", "gpt-5.5");
+  const model = readEnv("CODEX_API_MODEL", "gpt-5.6-sol");
   const timeoutMs = Number.parseInt(
     process.env.CODEX_API_TIMEOUT_MS ?? "180000",
     10,

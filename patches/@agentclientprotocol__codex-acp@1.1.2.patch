@@ -1,0 +1,128 @@
+diff --git a/dist/index.js b/dist/index.js
+index 6c155607e9c29c9eb5c4893cf4d9a2fe44b92043..e44c13c73fc66ce1df7ea223b7723b88de1c9ece 100755
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -25626,9 +25626,10 @@ var CodexAcpClient = class {
+   }
+   async resumeSession(request, onSubscribed) {
+     const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
++    const readOnlyDirectories = readMetaReadOnlyDirectories(request._meta);
+     await this.refreshSkills(request.cwd, additionalDirectories);
+     const response = await this.codexClient.threadResume({
+-      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []),
++      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], readOnlyDirectories),
+       cwd: request.cwd,
+       modelProvider: await this.getResumeModelProvider(),
+       threadId: request.sessionId
+@@ -25647,9 +25648,10 @@ var CodexAcpClient = class {
+   }
+   async loadSession(request, onSubscribed) {
+     const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
++    const readOnlyDirectories = readMetaReadOnlyDirectories(request._meta);
+     await this.refreshSkills(request.cwd, additionalDirectories);
+     const response = await this.codexClient.threadResume({
+-      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? []),
++      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers ?? [], readOnlyDirectories),
+       cwd: request.cwd,
+       modelProvider: await this.getResumeModelProvider(),
+       threadId: request.sessionId
+@@ -25673,9 +25675,10 @@ var CodexAcpClient = class {
+   }
+   async newSession(request) {
+     const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
++    const readOnlyDirectories = readMetaReadOnlyDirectories(request._meta);
+     await this.refreshSkills(request.cwd, additionalDirectories);
+     const response = await this.codexClient.threadStart({
+-      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers),
++      config: await this.createSessionConfig(request.cwd, additionalDirectories, request.mcpServers, readOnlyDirectories),
+       modelProvider: this.getModelProvider(),
+       cwd: request.cwd
+     });
+@@ -25741,7 +25744,7 @@ var CodexAcpClient = class {
+   getMcpServerStartupVersion() {
+     return this.codexClient.getMcpServerStartupVersion();
+   }
+-  async createSessionConfig(projectPath, additionalDirectories, mcpServers) {
++  async createSessionConfig(projectPath, additionalDirectories, mcpServers, readOnlyDirectories) {
+     const sessionRoots = [projectPath, ...additionalDirectories];
+     const mergedConfig = {
+       ...mergeGatewayConfig(this.config, this.gatewayConfig),
+@@ -25749,7 +25752,7 @@ var CodexAcpClient = class {
+         trust_level: "trusted"
+       }]))
+     };
+-    const configWithWorkspaceRoots = mergeSandboxWorkspaceWriteRoots(mergedConfig, additionalDirectories);
++    const configWithWorkspaceRoots = mergeSandboxWorkspaceWriteRoots(mergedConfig, additionalDirectories, readOnlyDirectories);
+     if (mcpServers.length === 0) {
+       return configWithWorkspaceRoots;
+     }
+@@ -25899,7 +25902,9 @@ var CodexAcpClient = class {
+       threadId: request.sessionId,
+       input,
+       approvalPolicy: agentMode.approvalPolicy,
+-      sandboxPolicy: addAdditionalDirectoriesToSandboxPolicy(agentMode.sandboxPolicy, additionalDirectories),
++      ...process.env["CODEX_ACP_PERMISSION_PROFILE"] === "weixin_family" ? {} : {
++        sandboxPolicy: addAdditionalDirectoriesToSandboxPolicy(agentMode.sandboxPolicy, additionalDirectories)
++      },
+       summary: disableSummary ? "none" : "auto",
+       effort,
+       model: modelId.model,
+@@ -26141,10 +26146,57 @@ function readAdditionalDirectories(cwd, additionalDirectories, meta3) {
+   }
+   return directories;
+ }
+-function mergeSandboxWorkspaceWriteRoots(config2, roots) {
++function readMetaReadOnlyDirectories(meta3) {
++  const gatewayMeta = meta3?.["weixin-household-gateway"];
++  const rawDirectories = isJsonObject(gatewayMeta) ? gatewayMeta["readOnlyDirectories"] : null;
++  if (!Array.isArray(rawDirectories)) {
++    return [];
++  }
++  return uniqueStrings(rawDirectories.filter((value) => typeof value === "string" && path4.isAbsolute(value)));
++}
++function mergeSandboxWorkspaceWriteRoots(config2, roots, readOnlyRoots = []) {
+   if (roots.length === 0) {
+     return config2;
+   }
++  const permissionProfileName = process.env["CODEX_ACP_PERMISSION_PROFILE"] === "weixin_family" ? "weixin_family" : void 0;
++  const configuredPermissions = isJsonObject(config2["permissions"]) ? config2["permissions"] : {};
++  const configuredProfile = permissionProfileName && isJsonObject(configuredPermissions[permissionProfileName]) ? configuredPermissions[permissionProfileName] : null;
++  if (permissionProfileName && config2["default_permissions"] === permissionProfileName && configuredProfile) {
++    const existingWorkspaceRoots = isJsonObject(configuredProfile["workspace_roots"]) ? configuredProfile["workspace_roots"] : {};
++    const existingFilesystem = isJsonObject(configuredProfile["filesystem"]) ? configuredProfile["filesystem"] : {};
++    const readOnlyRootSet = new Set(readOnlyRoots);
++    const writableRoots = roots.filter((root) => !readOnlyRootSet.has(root));
++    const conflictingRoot = writableRoots.find((writableRoot) => readOnlyRoots.some((readOnlyRoot) => {
++      if (path4.dirname(writableRoot) === path4.dirname(readOnlyRoot)) {
++        return true;
++      }
++      const writableRelative = path4.relative(writableRoot, readOnlyRoot);
++      const readOnlyRelative = path4.relative(readOnlyRoot, writableRoot);
++      return writableRelative === "" || !writableRelative.startsWith(".." + path4.sep) && writableRelative !== ".." && !path4.isAbsolute(writableRelative) || !readOnlyRelative.startsWith(".." + path4.sep) && readOnlyRelative !== ".." && !path4.isAbsolute(readOnlyRelative);
++    }));
++    if (conflictingRoot) {
++      throw new Error("Family ACP read-only and writable roots must use separate, non-overlapping parent directories");
++    }
++    const writableParentRules = Object.fromEntries(uniqueStrings(writableRoots.map((root) => path4.dirname(root)).filter((parent) => parent !== path4.parse(parent).root)).map((parent) => [parent, "deny"]));
++    return {
++      ...config2,
++      permissions: {
++        ...configuredPermissions,
++        [permissionProfileName]: {
++          ...configuredProfile,
++          filesystem: {
++            ...existingFilesystem,
++            ...writableParentRules,
++            ...Object.fromEntries(roots.map((root) => [root, readOnlyRootSet.has(root) ? "read" : "write"]))
++          },
++          workspace_roots: {
++            ...existingWorkspaceRoots,
++            ...Object.fromEntries(roots.map((root) => [root, true]))
++          }
++        }
++      }
++    };
++  }
+   const existingSandboxConfig = isJsonObject(config2["sandbox_workspace_write"]) ? config2["sandbox_workspace_write"] : {};
+   const existingWritableRoots = Array.isArray(existingSandboxConfig["writable_roots"]) ? existingSandboxConfig["writable_roots"].filter((value) => typeof value === "string") : [];
+   return {

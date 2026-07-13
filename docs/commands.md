@@ -24,17 +24,44 @@
 - `/files` 查看最近可发送文件
 - `/file <路径> [说明]` 发送服务器文件
 - `/codex [角色] [操作]` 查看或修改模型、思考强度
+- `/provider` 查看或切换供应商路径
 
 示例：
 
 ```text
 /codex admin
-/codex admin model gpt-5.5
+/codex admin model gpt-5.6-sol
 /codex family reasoning high
 /codex admin reset
+/provider
+/provider list
+/provider ccswitch
+/provider lock family-api on
+/provider lock family-acp on
+/provider admin-acp use vendorx
+/provider use vendorx
+/provider reset admin-acp
 /output process on
 /stop
 ```
+
+`/codex` 参数提示：
+
+- 角色：`admin`、`family`
+- 操作：`model <模型>`、`reasoning <强度>`、`reset`
+- 模型示例：`gpt-5.6-sol`、`gpt-5.6-terra`、`gpt-5.6-luna`
+- 思考强度会按模型校验：`gpt-5.6-sol` / `terra` 支持 `low` 到 `ultra`，
+  `gpt-5.6-luna` 支持 `low` 到 `max`，`gpt-5.5` 支持 `low` 到 `xhigh`；
+  未知第三方模型允许透传全部合法枚举。
+
+`/provider use <供应商名>` 会批量切换未锁定路径；先锁定 `family-api` 和
+`family-acp` 后，再批量切换就只会影响未锁定路径。精确切换可直接使用
+`/provider admin-acp use <供应商名>`、`/provider family-api use <供应商名>` 或
+`/provider family-acp use <供应商名>`。
+
+`/provider ccswitch` 会读取 cc-switch 的 Codex 供应商列表，默认路径是
+`~/.cc-switch/cc-switch.db`，也可以用 `CC_SWITCH_DB_PATH` 覆盖。这个命令只展示
+供应商 ID、名称、当前项、模型、base URL 和 wire_api，不展示密钥。
 
 ## family
 

@@ -22,6 +22,7 @@ const COMMANDS: readonly BuiltInCommand[] = [
   "/files",
   "/accounts",
   "/codex",
+  "/provider",
   "/output",
 ];
 

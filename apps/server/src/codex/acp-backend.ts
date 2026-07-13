@@ -291,6 +291,9 @@ export class AcpCodexBackend implements CodexBackend {
         conn.newSession({
           cwd: this.config.workspace,
           mcpServers: [],
+          _meta: {
+            "weixin-household-gateway": { readOnlyDirectories },
+          },
           ...(additionalDirectories.length > 0 &&
           this.connection.supportsAdditionalDirectories()
             ? { additionalDirectories }
@@ -336,6 +339,9 @@ export class AcpCodexBackend implements CodexBackend {
             sessionId: persisted,
             cwd: this.config.workspace,
             mcpServers: [],
+            _meta: {
+              "weixin-household-gateway": { readOnlyDirectories },
+            },
             ...(sessionAdditionalDirectories.length > 0
               ? { additionalDirectories: sessionAdditionalDirectories }
               : {}),
@@ -370,6 +376,9 @@ export class AcpCodexBackend implements CodexBackend {
       conn.newSession({
         cwd: this.config.workspace,
         mcpServers: [],
+        _meta: {
+          "weixin-household-gateway": { readOnlyDirectories },
+        },
         ...(sessionAdditionalDirectories.length > 0
           ? { additionalDirectories: sessionAdditionalDirectories }
           : {}),

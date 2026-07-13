@@ -1,11 +1,20 @@
 import crypto from "node:crypto";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import {
   AppConfig,
+  CodexProviderProfile,
+  CodexProviderRoute,
   UserRole,
 } from "../config/types.js";
-import { isCodexReasoningEffort } from "../config/reasoning.js";
+import {
+  CODEX_REASONING_EFFORTS,
+  getCodexModelReasoningEfforts,
+  isCodexModelReasoningEffortSupported,
+  isCodexReasoningEffort,
+} from "../config/reasoning.js";
 import { AppDatabase, SessionRecord, WechatAccountRecord } from "../storage/index.js";
 import {
   formatBeijingTime,
@@ -18,6 +27,19 @@ import {
 } from "../sessions/index.js";
 import type { SessionMemoryState } from "../sessions/index.js";
 import type { ParsedCommand } from "./types.js";
+
+const CODEX_MODEL_EXAMPLES = [
+  "gpt-5.6-sol",
+  "gpt-5.6-terra",
+  "gpt-5.6-luna",
+  "gpt-5.5",
+] as const;
+
+const CODEX_ACTIONS = ["model", "reasoning", "reset"] as const;
+
+function formatChoices(values: readonly string[]): string {
+  return values.join(" | ");
+}
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -145,19 +167,111 @@ function buildAccountsReply(params: {
   ].join("\n");
 }
 
+interface EffectiveCodexRouteSettings {
+  route: CodexProviderRoute;
+  provider: string;
+  model: string;
+  reasoning: string;
+}
+
+function codexRoutesForRole(role: UserRole): CodexProviderRoute[] {
+  return role === "admin"
+    ? ["admin-acp"]
+    : ["family-api", "family-acp"];
+}
+
+function resolveEffectiveCodexRouteSettings(params: {
+  config: AppConfig;
+  database: AppDatabase;
+  role: UserRole;
+  route: CodexProviderRoute;
+  providerNameOverride?: string;
+}): EffectiveCodexRouteSettings {
+  const roleConfig = params.config.codex[params.role];
+  const roleSettings = params.database.getCodexRoleSettings(params.role);
+  const routeSettings = params.database.getCodexProviderRouteSettings(params.route);
+  const configuredProviderName =
+    params.providerNameOverride !== undefined
+      ? params.providerNameOverride
+      : routeSettings?.providerName;
+  const provider = configuredProviderName
+    ? findProviderProfile(params.config, configuredProviderName)
+    : undefined;
+  const providerModel =
+    params.route === "family-api"
+      ? provider?.apiModel ?? provider?.model
+      : provider?.model ?? provider?.apiModel;
+  const providerName = provider
+    ? provider.name
+    : configuredProviderName
+      ? `${configuredProviderName}（缺失，回退 default）`
+      : "default";
+
+  return {
+    route: params.route,
+    provider: providerName,
+    model:
+      roleSettings?.model ??
+      providerModel ??
+      roleConfig.roleOverrides?.model ??
+      roleConfig.apiModel,
+    reasoning:
+      roleSettings?.reasoningEffort ??
+      provider?.reasoningEffort ??
+      roleConfig.roleOverrides?.reasoningEffort ??
+      "high",
+  };
+}
+
 function formatCodexRoleSettings(params: {
+  config: AppConfig;
   database: AppDatabase;
   role: UserRole;
 }): string {
-  const settings = params.database.getCodexRoleSettings(params.role);
+  const routes = codexRoutesForRole(params.role).map((route) =>
+    resolveEffectiveCodexRouteSettings({ ...params, route }),
+  );
   return [
     `role=${params.role}`,
-    `model=${settings?.model ?? "(default)"}`,
-    `reasoning=${settings?.reasoningEffort ?? "(default)"}`,
+    ...routes.map(
+      (route) =>
+        `${route.route}: provider=${route.provider}, model=${route.model}, reasoning=${route.reasoning}`,
+    ),
+  ].join("\n");
+}
+
+function buildUnsupportedReasoningReply(params: {
+  role: UserRole;
+  model: string;
+  reasoning: string;
+}): string {
+  const supported = getCodexModelReasoningEfforts(params.model);
+  return [
+    `模型 ${params.model} 不支持思考强度 ${params.reasoning}。`,
+    ...(supported ? [`该模型可选：${formatChoices(supported)}`] : []),
+    supported?.length
+      ? `请先设置兼容档位：/codex ${params.role} reasoning ${
+          supported.includes("high") ? "high" : supported[0]
+        }`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function buildCodexUsage(role?: UserRole): string {
+  const roleText = role ?? "admin|family";
+  return [
+    `用法：/codex ${roleText} [model <模型>|reasoning <强度>|reset]`,
+    `角色：admin | family`,
+    `操作：${formatChoices(CODEX_ACTIONS)}`,
+    `模型示例：${formatChoices(CODEX_MODEL_EXAMPLES)}`,
+    `思考强度：${formatChoices(CODEX_REASONING_EFFORTS)}`,
   ].join("\n");
 }
 
 function buildCodexSettingsReply(params: {
+  config: AppConfig;
   database: AppDatabase;
   role: UserRole;
   command: ParsedCommand;
@@ -171,27 +285,52 @@ function buildCodexSettingsReply(params: {
   if (!roleArg) {
     return [
       "当前 Codex 角色配置：",
-      formatCodexRoleSettings({ database: params.database, role: "admin" }),
+      formatCodexRoleSettings({
+        config: params.config,
+        database: params.database,
+        role: "admin",
+      }),
       "",
-      formatCodexRoleSettings({ database: params.database, role: "family" }),
+      formatCodexRoleSettings({
+        config: params.config,
+        database: params.database,
+        role: "family",
+      }),
       "",
-      "用法示例：",
+      "下一步：先选角色，再选操作。",
       "/codex admin",
       "/codex family",
-      "/codex admin model gpt-5.5",
+      "/codex admin model gpt-5.6-sol",
       "/codex family reasoning high",
       "/codex admin reset",
+      "",
+      buildCodexUsage(),
     ].join("\n");
   }
 
   if (roleArg !== "admin" && roleArg !== "family") {
-    return "用法：/codex admin|family [model <模型>|reasoning <low|medium|high|xhigh>|reset]";
+    return [
+      `未知角色：${roleArg}`,
+      "下一步请填角色：admin 或 family",
+      buildCodexUsage(),
+    ].join("\n");
   }
 
   const targetRole = roleArg as UserRole;
   const action = params.command.args[1]?.trim().toLowerCase();
   if (!action) {
-    return formatCodexRoleSettings({ database: params.database, role: targetRole });
+    return [
+      formatCodexRoleSettings({
+        config: params.config,
+        database: params.database,
+        role: targetRole,
+      }),
+      "",
+      `下一步可选操作：${formatChoices(CODEX_ACTIONS)}`,
+      `/codex ${targetRole} model gpt-5.6-sol`,
+      `/codex ${targetRole} reasoning high`,
+      `/codex ${targetRole} reset`,
+    ].join("\n");
   }
 
   if (action === "reset") {
@@ -202,8 +341,35 @@ function buildCodexSettingsReply(params: {
 
   if (action === "model") {
     const model = params.command.args[2]?.trim();
-    if (!model) return "用法：/codex admin|family model <模型名>";
+    if (!model) {
+      return [
+        `下一步请填模型名。`,
+        `模型示例：${formatChoices(CODEX_MODEL_EXAMPLES)}`,
+        `推荐：/codex ${targetRole} model gpt-5.6-sol`,
+      ].join("\n");
+    }
     const current = params.database.getCodexRoleSettings(targetRole);
+    const incompatibleRoute = codexRoutesForRole(targetRole)
+      .map((route) =>
+        resolveEffectiveCodexRouteSettings({
+          config: params.config,
+          database: params.database,
+          role: targetRole,
+          route,
+        }),
+      )
+      .find(
+        (route) =>
+          isCodexReasoningEffort(route.reasoning) &&
+          !isCodexModelReasoningEffortSupported(model, route.reasoning),
+      );
+    if (incompatibleRoute) {
+      return buildUnsupportedReasoningReply({
+        role: targetRole,
+        model,
+        reasoning: incompatibleRoute.reasoning,
+      });
+    }
     params.database.saveCodexRoleSettings({
       role: targetRole,
       model,
@@ -216,9 +382,35 @@ function buildCodexSettingsReply(params: {
   if (action === "reasoning") {
     const reasoning = params.command.args[2]?.trim().toLowerCase();
     if (!reasoning || !isCodexReasoningEffort(reasoning)) {
-      return "用法：/codex admin|family reasoning low|medium|high|xhigh";
+      return [
+        reasoning ? `未知思考强度：${reasoning}` : "下一步请填思考强度。",
+        `可选：${formatChoices(CODEX_REASONING_EFFORTS)}`,
+        `推荐：/codex ${targetRole} reasoning high`,
+        `高强度：/codex ${targetRole} reasoning xhigh`,
+        `最强：/codex ${targetRole} reasoning max`,
+      ].join("\n");
     }
     const current = params.database.getCodexRoleSettings(targetRole);
+    const incompatibleRoute = codexRoutesForRole(targetRole)
+      .map((route) =>
+        resolveEffectiveCodexRouteSettings({
+          config: params.config,
+          database: params.database,
+          role: targetRole,
+          route,
+        }),
+      )
+      .find(
+        (route) =>
+          !isCodexModelReasoningEffortSupported(route.model, reasoning),
+      );
+    if (incompatibleRoute) {
+      return buildUnsupportedReasoningReply({
+        role: targetRole,
+        model: incompatibleRoute.model,
+        reasoning,
+      });
+    }
     params.database.saveCodexRoleSettings({
       role: targetRole,
       ...(current?.model ? { model: current.model } : {}),
@@ -228,7 +420,591 @@ function buildCodexSettingsReply(params: {
     return `已设置 ${targetRole} 思考强度：${reasoning}\n已刷新对应后端；后续该角色会按新思考强度运行。`;
   }
 
-  return "用法：/codex admin|family [model <模型>|reasoning <low|medium|high|xhigh>|reset]";
+  return [
+    `未知操作：${action}`,
+    `下一步可选操作：${formatChoices(CODEX_ACTIONS)}`,
+    buildCodexUsage(targetRole),
+  ].join("\n");
+}
+
+const PROVIDER_ROUTES: readonly CodexProviderRoute[] = [
+  "admin-acp",
+  "family-api",
+  "family-acp",
+];
+
+function isProviderRoute(value: string | undefined): value is CodexProviderRoute {
+  return Boolean(value && PROVIDER_ROUTES.includes(value as CodexProviderRoute));
+}
+
+function findProviderProfile(
+  config: AppConfig,
+  name: string,
+): CodexProviderProfile | undefined {
+  const normalized = name.toLowerCase();
+  const exact = config.codex.providers.find(
+    (profile) => profile.name.toLowerCase() === normalized,
+  );
+  if (exact) {
+    return exact;
+  }
+
+  return config.codex.providers.find((profile) => {
+    const displayName = profile.displayName?.toLowerCase() ?? "";
+    return (
+      profile.name.toLowerCase().includes(normalized) ||
+      displayName.includes(normalized)
+    );
+  });
+}
+
+function resolveProviderName(params: {
+  config: AppConfig;
+  rawName: string | undefined;
+}): { providerName?: string; error?: string } {
+  const rawName = params.rawName?.trim();
+  if (!rawName) {
+    return { error: "用法：/provider <route> use <供应商名>" };
+  }
+
+  if (rawName.toLowerCase() === "default") {
+    return { providerName: "" };
+  }
+
+  const profile = findProviderProfile(params.config, rawName);
+  if (!profile) {
+    return {
+      error: `未知供应商：${rawName}\n可用：default${
+        params.config.codex.providers.length > 0
+          ? `, ${params.config.codex.providers.map((item) => item.name).join(", ")}`
+          : ""
+      }`,
+    };
+  }
+
+  return { providerName: profile.name };
+}
+
+function parseProviderRoutes(values: string[]): {
+  routes: CodexProviderRoute[];
+  error?: string;
+} {
+  if (values.length === 0) {
+    return { routes: [...PROVIDER_ROUTES] };
+  }
+
+  const routes = new Set<CodexProviderRoute>();
+  for (const value of values) {
+    const normalized = value.trim().toLowerCase();
+    if (!normalized || normalized === "all") {
+      for (const route of PROVIDER_ROUTES) routes.add(route);
+      continue;
+    }
+    if (!isProviderRoute(normalized)) {
+      return {
+        routes: [],
+        error: "路径只能是 admin-acp、family-api、family-acp 或 all。",
+      };
+    }
+    routes.add(normalized);
+  }
+
+  return { routes: [...routes] };
+}
+
+function formatProviderProfile(profile: CodexProviderProfile): string {
+  const parts = [
+    profile.name,
+    profile.displayName ?? "",
+    profile.backend ? `backend=${profile.backend}` : "",
+    profile.model ?? profile.apiModel ?? "",
+    profile.apiBaseUrl ?? "",
+  ].filter(Boolean);
+  return parts.join(" | ");
+}
+
+function buildProjectProvidersReply(config: AppConfig): string {
+  return [
+    "可用供应商：",
+    [
+      "default",
+      ".env",
+      config.codex.admin.apiModel,
+      config.codex.admin.apiBaseUrl ?? "Codex login",
+    ].join(" | "),
+    ...(config.codex.providers.length > 0
+      ? config.codex.providers.map(formatProviderProfile)
+      : ["未配置额外 profile"]
+    ),
+  ].join("\n");
+}
+
+interface CcSwitchCodexProvider {
+  id: string;
+  name: string;
+  category?: string;
+  providerType?: string;
+  isCurrent: boolean;
+  inFailoverQueue: boolean;
+  model?: string;
+  modelProvider?: string;
+  baseUrl?: string;
+  wireApi?: string;
+}
+
+function resolveCcSwitchDbPath(): string {
+  const configured =
+    process.env.CC_SWITCH_DB_PATH?.trim() ??
+    process.env.CCSWITCH_DB_PATH?.trim();
+  return path.resolve(configured || path.join(os.homedir(), ".cc-switch", "cc-switch.db"));
+}
+
+function readTomlStringValue(text: string, key: string): string | undefined {
+  const match = text.match(
+    new RegExp(`^\\s*${key}\\s*=\\s*(\"(?:[^\"\\\\]|\\\\.)*\"|'(?:[^'\\\\]|\\\\.)*')`, "m"),
+  );
+  if (!match?.[1]) {
+    return undefined;
+  }
+
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return match[1].slice(1, -1);
+  }
+}
+
+function parseCcSwitchProviderConfig(settingsConfig: string): {
+  model?: string;
+  modelProvider?: string;
+  baseUrl?: string;
+  wireApi?: string;
+} {
+  let parsed: { config?: unknown } = {};
+  try {
+    parsed = JSON.parse(settingsConfig) as { config?: unknown };
+  } catch {
+    return {};
+  }
+
+  if (typeof parsed.config !== "string") {
+    return {};
+  }
+
+  const model = readTomlStringValue(parsed.config, "model");
+  const modelProvider = readTomlStringValue(parsed.config, "model_provider");
+  const baseUrl = readTomlStringValue(parsed.config, "base_url");
+  const wireApi = readTomlStringValue(parsed.config, "wire_api");
+
+  return {
+    ...(model ? { model } : {}),
+    ...(modelProvider ? { modelProvider } : {}),
+    ...(baseUrl ? { baseUrl } : {}),
+    ...(wireApi ? { wireApi } : {}),
+  };
+}
+
+function listCcSwitchCodexProviders(): {
+  dbPath: string;
+  providers: CcSwitchCodexProvider[];
+  error?: string;
+} {
+  const dbPath = resolveCcSwitchDbPath();
+  if (!fs.existsSync(dbPath)) {
+    return {
+      dbPath,
+      providers: [],
+      error: "未找到 cc-switch 数据库。",
+    };
+  }
+
+  let db: DatabaseSync | undefined;
+  try {
+    db = new DatabaseSync(dbPath, { readOnly: true });
+    const rows = db
+      .prepare(
+        `
+        SELECT id, app_type, name, settings_config, category,
+               is_current, in_failover_queue, provider_type
+        FROM providers
+        WHERE app_type = 'codex'
+        ORDER BY is_current DESC, sort_index IS NULL, sort_index ASC, name ASC
+        `,
+      )
+      .all() as Array<Record<string, unknown>>;
+    const endpointStatement = db.prepare(
+      `
+      SELECT url
+      FROM provider_endpoints
+      WHERE provider_id = ? AND app_type = 'codex'
+      ORDER BY id ASC
+      LIMIT 1
+      `,
+    );
+
+    return {
+      dbPath,
+      providers: rows.map((row) => {
+        const config = parseCcSwitchProviderConfig(
+          String(row.settings_config ?? ""),
+        );
+        const endpoint = endpointStatement.get(String(row.id)) as
+          | { url?: string }
+          | undefined;
+        return {
+          id: String(row.id),
+          name: String(row.name),
+          ...(row.category ? { category: String(row.category) } : {}),
+          ...(row.provider_type
+            ? { providerType: String(row.provider_type) }
+            : {}),
+          isCurrent: Number(row.is_current ?? 0) !== 0,
+          inFailoverQueue: Number(row.in_failover_queue ?? 0) !== 0,
+          ...config,
+          ...(config.baseUrl
+            ? {}
+            : endpoint?.url
+              ? { baseUrl: endpoint.url }
+              : {}),
+        };
+      }),
+    };
+  } catch (error) {
+    return {
+      dbPath,
+      providers: [],
+      error: error instanceof Error ? error.message : String(error),
+    };
+  } finally {
+    try {
+      db?.close();
+    } catch {
+
+    }
+  }
+}
+
+function formatCcSwitchProvider(
+  provider: CcSwitchCodexProvider,
+  detail = false,
+): string {
+  if (!detail) {
+    return [
+      provider.isCurrent ? "[当前]" : "",
+      provider.id,
+      provider.name,
+      provider.model ?? "",
+      provider.baseUrl ?? "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  }
+
+  return [
+    provider.id,
+    `name=${provider.name}`,
+    provider.isCurrent ? "current=yes" : "",
+    provider.inFailoverQueue ? "failover=yes" : "",
+    provider.category ? `category=${provider.category}` : "",
+    provider.providerType ? `type=${provider.providerType}` : "",
+    provider.model ? `model=${provider.model}` : "",
+    provider.modelProvider ? `provider=${provider.modelProvider}` : "",
+    provider.wireApi ? `wire=${provider.wireApi}` : "",
+    provider.baseUrl ? `base=${provider.baseUrl}` : "",
+  ]
+    .filter(Boolean)
+    .join("  ");
+}
+
+function buildCcSwitchProvidersReply(options?: { detail?: boolean }): string {
+  const detail = options?.detail ?? false;
+  const result = listCcSwitchCodexProviders();
+  const lines = ["cc-switch Codex："];
+
+  if (detail) {
+    lines.push(`db=${result.dbPath}`);
+  }
+
+  if (result.error) {
+    lines.push(detail ? `状态：${result.error}` : result.error);
+  }
+
+  if (result.providers.length === 0) {
+    lines.push("(无)");
+  } else {
+    lines.push(
+      ...result.providers.map((provider) =>
+        formatCcSwitchProvider(provider, detail),
+      ),
+    );
+  }
+
+  return lines.join("\n");
+}
+
+function formatProviderRouteSettings(params: {
+  config: AppConfig;
+  database: AppDatabase;
+  route: CodexProviderRoute;
+}): string {
+  const settings = params.database.getCodexProviderRouteSettings(params.route);
+  const providerName = settings?.providerName ?? "";
+  const providerLabel = providerName
+    ? findProviderProfile(params.config, providerName)
+      ? providerName
+      : `${providerName}(未配置)`
+    : "default";
+  return [
+    params.route,
+    providerLabel,
+    settings?.locked ? "锁定" : "未锁定",
+  ].join(" | ");
+}
+
+function buildProviderStatusReply(params: {
+  config: AppConfig;
+  database: AppDatabase;
+}): string {
+  return [
+    "路径：",
+    ...PROVIDER_ROUTES.map((route) =>
+      formatProviderRouteSettings({
+        config: params.config,
+        database: params.database,
+        route,
+      }),
+    ),
+    "",
+    buildProjectProvidersReply(params.config),
+    "",
+    "用法：",
+    "/provider use <供应商名>          切换所有未锁定路径",
+    "/provider admin-acp use <供应商名>",
+    "/provider family-api use <供应商名>",
+    "/provider family-acp use <供应商名>",
+    "/provider lock <路径> on|off",
+    "/provider reset <路径|all>",
+  ].join("\n");
+}
+
+function saveProviderForRoutes(params: {
+  config: AppConfig;
+  database: AppDatabase;
+  providerName: string;
+  routes: CodexProviderRoute[];
+  respectLocks: boolean;
+  onChanged?: (routes: CodexProviderRoute[]) => void;
+}): string {
+  const changed = params.routes.filter((route) => {
+    const settings = params.database.getCodexProviderRouteSettings(route);
+    return !(params.respectLocks && settings?.locked);
+  });
+  const skippedLocked: CodexProviderRoute[] = [];
+  for (const route of params.routes) {
+    const settings = params.database.getCodexProviderRouteSettings(route);
+    if (params.respectLocks && settings?.locked) {
+      skippedLocked.push(route);
+    }
+  }
+
+  for (const route of changed) {
+    const role: UserRole = route === "admin-acp" ? "admin" : "family";
+    const effective = resolveEffectiveCodexRouteSettings({
+      config: params.config,
+      database: params.database,
+      role,
+      route,
+      providerNameOverride: params.providerName,
+    });
+    if (
+      isCodexReasoningEffort(effective.reasoning) &&
+      !isCodexModelReasoningEffortSupported(
+        effective.model,
+        effective.reasoning,
+      )
+    ) {
+      return [
+        `不能切换 ${route}：模型 ${effective.model} 不支持思考强度 ${effective.reasoning}。`,
+        ...(getCodexModelReasoningEfforts(effective.model)
+          ? [
+              `该模型可选：${formatChoices(
+                getCodexModelReasoningEfforts(effective.model)!,
+              )}`,
+            ]
+          : []),
+        "请先用 /codex 调整模型或思考强度。",
+      ].join("\n");
+    }
+  }
+
+  for (const route of changed) {
+    params.database.saveCodexProviderRouteSettings({
+      route,
+      providerName: params.providerName,
+    });
+  }
+
+  if (changed.length > 0) {
+    params.onChanged?.(changed);
+  }
+
+  const providerLabel = params.providerName || "default";
+  return [
+    changed.length > 0
+      ? `已切换：${changed.join(", ")} -> ${providerLabel}`
+      : "没有路径被切换。",
+    skippedLocked.length > 0
+      ? `已跳过锁定路径：${skippedLocked.join(", ")}`
+      : "",
+    changed.length > 0 ? "已刷新对应后端；后续新请求会使用新供应商。" : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+function saveProviderLocks(params: {
+  database: AppDatabase;
+  routes: CodexProviderRoute[];
+  locked: boolean;
+}): string {
+  for (const route of params.routes) {
+    params.database.saveCodexProviderRouteSettings({
+      route,
+      locked: params.locked,
+    });
+  }
+
+  return `已${params.locked ? "锁定" : "解锁"}：${params.routes.join(", ")}。`;
+}
+
+function buildProviderSettingsReply(params: {
+  config: AppConfig;
+  database: AppDatabase;
+  role: UserRole;
+  command: ParsedCommand;
+  onChanged?: (routes: CodexProviderRoute[]) => void;
+}): string {
+  if (params.role !== "admin") {
+    return "这个供应商命令只对 admin 开放。";
+  }
+
+  const [firstRaw, secondRaw, thirdRaw, ...restRaw] = params.command.args;
+  const first = firstRaw?.trim().toLowerCase();
+  const second = secondRaw?.trim().toLowerCase();
+  const third = thirdRaw?.trim().toLowerCase();
+
+  if (!first || first === "status") {
+    return buildProviderStatusReply(params);
+  }
+
+  if (first === "list") {
+    return buildProjectProvidersReply(params.config);
+  }
+
+  if (first === "ccswitch" || first === "cc-switch") {
+    return buildCcSwitchProvidersReply({ detail: second === "detail" });
+  }
+
+  if (first === "use") {
+    const resolved = resolveProviderName({
+      config: params.config,
+      rawName: secondRaw,
+    });
+    if (resolved.error) return resolved.error;
+    const parsedRoutes = parseProviderRoutes([thirdRaw, ...restRaw].filter(
+      (item): item is string => Boolean(item),
+    ));
+    if (parsedRoutes.error) return parsedRoutes.error;
+    return saveProviderForRoutes({
+      config: params.config,
+      database: params.database,
+      providerName: resolved.providerName ?? "",
+      routes: parsedRoutes.routes,
+      respectLocks: true,
+      ...(params.onChanged ? { onChanged: params.onChanged } : {}),
+    });
+  }
+
+  if (first === "reset") {
+    const parsedRoutes = parseProviderRoutes([secondRaw, thirdRaw, ...restRaw].filter(
+      (item): item is string => Boolean(item),
+    ));
+    if (parsedRoutes.error) return parsedRoutes.error;
+    return saveProviderForRoutes({
+      config: params.config,
+      database: params.database,
+      providerName: "",
+      routes: parsedRoutes.routes,
+      respectLocks: true,
+      ...(params.onChanged ? { onChanged: params.onChanged } : {}),
+    });
+  }
+
+  if (first === "lock") {
+    const parsedRoutes = parseProviderRoutes(secondRaw ? [secondRaw] : []);
+    if (parsedRoutes.error) return parsedRoutes.error;
+    const enabled = parseSwitch(third);
+    if (enabled === undefined) {
+      return "用法：/provider lock admin-acp|family-api|family-acp|all on|off";
+    }
+    return saveProviderLocks({
+      database: params.database,
+      routes: parsedRoutes.routes,
+      locked: enabled,
+    });
+  }
+
+  if (isProviderRoute(first)) {
+    const route = first;
+    if (!second) {
+      return formatProviderRouteSettings({
+        config: params.config,
+        database: params.database,
+        route,
+      });
+    }
+
+    if (second === "use") {
+      const resolved = resolveProviderName({
+        config: params.config,
+        rawName: thirdRaw,
+      });
+      if (resolved.error) return resolved.error;
+      return saveProviderForRoutes({
+        config: params.config,
+        database: params.database,
+        providerName: resolved.providerName ?? "",
+        routes: [route],
+        respectLocks: false,
+        ...(params.onChanged ? { onChanged: params.onChanged } : {}),
+      });
+    }
+
+    if (second === "reset") {
+      return saveProviderForRoutes({
+        config: params.config,
+        database: params.database,
+        providerName: "",
+        routes: [route],
+        respectLocks: false,
+        ...(params.onChanged ? { onChanged: params.onChanged } : {}),
+      });
+    }
+
+    if (second === "lock") {
+      const enabled = parseSwitch(third);
+      if (enabled === undefined) {
+        return "用法：/provider <路径> lock on|off";
+      }
+      return saveProviderLocks({
+        database: params.database,
+        routes: [route],
+        locked: enabled,
+      });
+    }
+  }
+
+  return "用法：/provider [list|use <供应商>|<路径> use <供应商>|lock <路径> on|off|reset <路径|all>]";
 }
 
 function formatSwitch(value: boolean): string {
@@ -421,6 +1197,7 @@ export function buildCommandReply(params: {
   config: AppConfig;
   onRoleModeChanged?: (nextRole: UserRole) => void;
   onCodexSettingsChanged?: (role: UserRole) => void;
+  onProviderSettingsChanged?: (routes: CodexProviderRoute[]) => void;
 }): string {
   switch (params.command.name) {
     case "/time":
@@ -447,6 +1224,7 @@ export function buildCommandReply(params: {
             "/files 查看最近可发送文件",
             "/accounts 查看已绑定微信账号",
             "/codex 查看或修改 admin/family 的模型与思考强度",
+            "/provider 查看或切换供应商路径",
             "/output 查看或切换过程输出",
           ].join("\n")
         : [
@@ -514,11 +1292,22 @@ export function buildCommandReply(params: {
       return buildAccountsReply(params);
     case "/codex":
       return buildCodexSettingsReply({
+        config: params.config,
         database: params.database,
         role: params.role,
         command: params.command,
         ...(params.onCodexSettingsChanged
           ? { onChanged: params.onCodexSettingsChanged }
+          : {}),
+      });
+    case "/provider":
+      return buildProviderSettingsReply({
+        config: params.config,
+        database: params.database,
+        role: params.role,
+        command: params.command,
+        ...(params.onProviderSettingsChanged
+          ? { onChanged: params.onProviderSettingsChanged }
           : {}),
       });
     case "/output":

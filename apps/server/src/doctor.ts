@@ -1,9 +1,14 @@
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { loadConfig } from "./config/index.js";
-import { AcpConnection, hasAcpEnvAuth } from "./codex/acp-connection.js";
+import {
+  AcpConnection,
+  buildAcpLaunch,
+  hasAcpEnvAuth,
+} from "./codex/acp-connection.js";
 import { AppDatabase } from "./storage/index.js";
 import { CodexRuntimeConfig } from "./config/types.js";
 
@@ -135,7 +140,7 @@ function checkCommand(command: string, args: string[]): Promise<CheckResult> {
 }
 
 async function checkAcpCommand(command: string): Promise<CheckResult> {
-  const result = await checkCommand(command, ["--help"]);
+  const result = await checkCommand(command, ["--version"]);
   if (!result.ok) {
     return result;
   }
@@ -166,6 +171,92 @@ function checkAcpAuth(name: string, config: CodexRuntimeConfig): CheckResult {
         name,
         `${detail}; set CODEX_CLI_API_KEY, OPENAI_API_KEY, or CODEX_API_KEY for codex-acp`,
       );
+}
+
+function checkFamilyAcpIsolation(config: CodexRuntimeConfig): CheckResult {
+  if (config.backend !== "acp") {
+    return ok("family ACP 文件隔离", "not enabled");
+  }
+  if (!config.acpWorkspaceIsolation) {
+    return fail("family ACP 文件隔离", "workspace permission profile is disabled");
+  }
+
+  try {
+    const launch = buildAcpLaunch(config);
+    const leakedKeys = Object.keys(launch.env).filter((key) =>
+      /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i.test(key),
+    );
+    const codexConfig = JSON.parse(launch.env.CODEX_CONFIG ?? "{}") as Record<
+      string,
+      unknown
+    >;
+    const profileName = codexConfig.default_permissions;
+    if (profileName !== "weixin_family") {
+      return fail("family ACP 文件隔离", "default permission profile is missing");
+    }
+    const permissions = codexConfig.permissions;
+    const profile =
+      permissions && typeof permissions === "object" && !Array.isArray(permissions)
+        ? (permissions as Record<string, unknown>)[profileName]
+        : undefined;
+    const filesystem =
+      profile && typeof profile === "object" && !Array.isArray(profile)
+        ? (profile as Record<string, unknown>).filesystem
+        : undefined;
+    const filesystemRules =
+      filesystem && typeof filesystem === "object" && !Array.isArray(filesystem)
+        ? (filesystem as Record<string, unknown>)
+        : undefined;
+    if (
+      !filesystemRules ||
+      filesystemRules[":root"] !== "deny" ||
+      filesystemRules[":slash_tmp"] !== "deny" ||
+      filesystemRules[path.resolve(os.tmpdir())] !== "deny" ||
+      filesystemRules[path.dirname(config.workspace)] !== "deny"
+    ) {
+      return fail(
+        "family ACP 文件隔离",
+        "root, workspace parent, or temporary directory deny rules are missing",
+      );
+    }
+    const shellPolicy = codexConfig.shell_environment_policy;
+    const shellSet =
+      shellPolicy && typeof shellPolicy === "object" && !Array.isArray(shellPolicy)
+        ? (shellPolicy as Record<string, unknown>).set
+        : undefined;
+    const shellEnvironment =
+      shellSet && typeof shellSet === "object" && !Array.isArray(shellSet)
+        ? (shellSet as Record<string, unknown>)
+        : undefined;
+    if (
+      shellEnvironment?.TMPDIR !== path.join(config.workspace, ".tmp") ||
+      shellEnvironment?.TMP !== shellEnvironment.TMPDIR ||
+      shellEnvironment?.TEMP !== shellEnvironment.TMPDIR
+    ) {
+      return fail(
+        "family ACP 文件隔离",
+        "sandboxed temporary directory is not inside the family workspace",
+      );
+    }
+    if (leakedKeys.length > 0) {
+      return fail(
+        "family ACP 文件隔离",
+        `credential-like child environment keys: ${leakedKeys.join(", ")}`,
+      );
+    }
+    if (config.apiBaseUrl && launch.apiKey && !launch.gatewayAuth) {
+      return fail("family ACP 文件隔离", "isolated gateway authentication is missing");
+    }
+    return ok(
+      "family ACP 文件隔离",
+      `profile=${profileName}, root_deny=true, workspace_tmp=true, child_credentials=0, gateway_auth=${Boolean(launch.gatewayAuth)}`,
+    );
+  } catch (error) {
+    return fail(
+      "family ACP 文件隔离",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 async function checkAcpSession(
@@ -361,6 +452,7 @@ async function run(): Promise<void> {
   }
   if (config.codex.family.backend === "acp") {
     results.push(checkAcpAuth("Codex ACP auth family", config.codex.family));
+    results.push(checkFamilyAcpIsolation(config.codex.family));
     if (runAcpSession) {
       results.push(
         await checkAcpSession("Codex ACP session family", config.codex.family),

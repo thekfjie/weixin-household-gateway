@@ -1,7 +1,11 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
+import path from "node:path";
 import {
   AppConfig,
+  CodexProviderRoute,
   CodexRuntimeConfig,
+  isCodexModelReasoningEffortSupported,
   isCodexReasoningEffort,
   UserRole,
 } from "../../config/index.js";
@@ -254,39 +258,144 @@ export class WechatWorker {
   constructor(private readonly options: WechatWorkerOptions) {
     this.codexBackends = {
       admin: createCodexBackend(
-        this.buildRuntimeCodexConfig("admin"),
+        this.buildRuntimeCodexConfig("admin", { providerRoute: "admin-acp" }),
       ),
       "family-acp": createCodexBackend(
-        this.buildRuntimeCodexConfig("family", { backendOverride: "acp" }),
+        this.buildRuntimeCodexConfig("family", {
+          backendOverride: "acp",
+          providerRoute: "family-acp",
+        }),
       ),
       "family-api": createCodexBackend(
-        this.buildRuntimeCodexConfig("family", { backendOverride: "api" }),
+        this.buildRuntimeCodexConfig("family", {
+          backendOverride: "api",
+          providerRoute: "family-api",
+        }),
       ),
     };
   }
 
   private buildRuntimeCodexConfig(
     role: UserRole,
-    options?: { backendOverride?: CodexRuntimeConfig["backend"] },
-  ) {
+    options?: {
+      backendOverride?: CodexRuntimeConfig["backend"];
+      providerRoute?: CodexProviderRoute;
+    },
+  ): CodexRuntimeConfig {
     const baseConfig = this.options.config.codex[role];
-    const settings = this.options.database.getCodexRoleSettings(role);
-    return {
+    const config: CodexRuntimeConfig = {
       ...baseConfig,
+      args: [...baseConfig.args],
+      acpArgs: [...baseConfig.acpArgs],
+      envPassthrough: [...baseConfig.envPassthrough],
+      envOverrides: { ...baseConfig.envOverrides },
+      ...(baseConfig.roleOverrides
+        ? { roleOverrides: { ...baseConfig.roleOverrides } }
+        : {}),
       ...(options?.backendOverride
         ? { backend: options.backendOverride }
         : {}),
-      ...(settings?.model || settings?.reasoningEffort
-        ? {
-            roleOverrides: {
-              ...(settings?.model ? { model: settings.model } : {}),
-              ...(settings?.reasoningEffort &&
-              isCodexReasoningEffort(settings.reasoningEffort)
-                ? { reasoningEffort: settings.reasoningEffort }
-                : {}),
-            },
-          }
-        : {}),
+    };
+    const providerRoute = options?.providerRoute;
+    const providerName = providerRoute
+      ? this.options.database.getCodexProviderRouteSettings(providerRoute)
+          ?.providerName
+      : undefined;
+    const provider = providerName
+      ? this.options.config.codex.providers.find(
+          (profile) =>
+            profile.name.toLowerCase() === providerName.toLowerCase(),
+        )
+      : undefined;
+    if (providerName && !provider) {
+      console.warn(
+        `[codex] provider '${providerName}' for ${providerRoute} is not configured; using default config`,
+      );
+    }
+
+    const providerRoleOverrides: NonNullable<
+      CodexRuntimeConfig["roleOverrides"]
+    > = {};
+    if (provider) {
+      if (provider.backend && !options?.backendOverride) {
+        config.backend = provider.backend;
+      }
+      if (provider.apiBaseUrl) {
+        config.apiBaseUrl = provider.apiBaseUrl;
+        config.apiKey = provider.apiKey;
+      } else if (provider.apiKey) {
+        config.apiKey = provider.apiKey;
+      }
+      const providerModel = provider.apiModel ?? provider.model;
+      if (providerModel && config.backend === "api") {
+        config.apiModel = providerModel;
+      }
+      const agentModel = provider.model ?? provider.apiModel;
+      if (agentModel) {
+        providerRoleOverrides.model = agentModel;
+      }
+      if (provider.reasoningEffort) {
+        providerRoleOverrides.reasoningEffort = provider.reasoningEffort;
+      }
+      if (provider.codexHome) {
+        config.codexHome = provider.codexHome;
+      }
+      if (provider.acpArgs.length > 0) {
+        config.acpArgs = [...config.acpArgs, ...provider.acpArgs];
+        config.args = [...config.args, ...provider.acpArgs];
+      }
+      config.envOverrides = {
+        ...config.envOverrides,
+        ...provider.envOverrides,
+      };
+    }
+
+    const settings = this.options.database.getCodexRoleSettings(role);
+    const roleOverrides: NonNullable<CodexRuntimeConfig["roleOverrides"]> = {
+      ...(config.roleOverrides ?? {}),
+      ...providerRoleOverrides,
+    };
+    if (settings?.model) {
+      roleOverrides.model = settings.model;
+      if (config.backend === "api") {
+        config.apiModel = settings.model;
+      }
+    }
+    if (
+      settings?.reasoningEffort &&
+      isCodexReasoningEffort(settings.reasoningEffort)
+    ) {
+      roleOverrides.reasoningEffort = settings.reasoningEffort;
+    }
+    if (roleOverrides.model || roleOverrides.reasoningEffort) {
+      config.roleOverrides = roleOverrides;
+    } else {
+      delete config.roleOverrides;
+    }
+
+    if (roleOverrides.reasoningEffort) {
+      const effectiveModels = new Set(
+        [
+          roleOverrides.model,
+          config.backend === "api" ? config.apiModel : undefined,
+        ].filter((model): model is string => Boolean(model)),
+      );
+      for (const model of effectiveModels) {
+        if (
+          !isCodexModelReasoningEffortSupported(
+            model,
+            roleOverrides.reasoningEffort,
+          )
+        ) {
+          throw new Error(
+            `Invalid Codex route ${providerRoute ?? role}: model ${model} does not support reasoning ${roleOverrides.reasoningEffort}`,
+          );
+        }
+      }
+    }
+
+    return {
+      ...config,
     };
   }
 
@@ -294,7 +403,7 @@ export class WechatWorker {
     if (role === "admin") {
       this.codexBackends.admin.dispose();
       this.codexBackends.admin = createCodexBackend(
-        this.buildRuntimeCodexConfig("admin"),
+        this.buildRuntimeCodexConfig("admin", { providerRoute: "admin-acp" }),
       );
       return;
     }
@@ -302,11 +411,67 @@ export class WechatWorker {
     this.codexBackends["family-acp"].dispose();
     this.codexBackends["family-api"].dispose();
     this.codexBackends["family-acp"] = createCodexBackend(
-      this.buildRuntimeCodexConfig("family", { backendOverride: "acp" }),
+      this.buildRuntimeCodexConfig("family", {
+        backendOverride: "acp",
+        providerRoute: "family-acp",
+      }),
     );
     this.codexBackends["family-api"] = createCodexBackend(
-      this.buildRuntimeCodexConfig("family", { backendOverride: "api" }),
+      this.buildRuntimeCodexConfig("family", {
+        backendOverride: "api",
+        providerRoute: "family-api",
+      }),
     );
+  }
+
+  private rebuildProviderRoutes(routes: CodexProviderRoute[]): void {
+    const routeSet = new Set(routes);
+    if (routeSet.has("admin-acp")) {
+      this.codexBackends.admin.dispose();
+      this.clearAcpSessionMap(
+        this.buildRuntimeCodexConfig("admin", { providerRoute: "admin-acp" }),
+      );
+      this.codexBackends.admin = createCodexBackend(
+        this.buildRuntimeCodexConfig("admin", { providerRoute: "admin-acp" }),
+      );
+    }
+    if (routeSet.has("family-acp")) {
+      this.codexBackends["family-acp"].dispose();
+      this.clearAcpSessionMap(
+        this.buildRuntimeCodexConfig("family", {
+          backendOverride: "acp",
+          providerRoute: "family-acp",
+        }),
+      );
+      this.codexBackends["family-acp"] = createCodexBackend(
+        this.buildRuntimeCodexConfig("family", {
+          backendOverride: "acp",
+          providerRoute: "family-acp",
+        }),
+      );
+    }
+    if (routeSet.has("family-api")) {
+      this.codexBackends["family-api"].dispose();
+      this.codexBackends["family-api"] = createCodexBackend(
+        this.buildRuntimeCodexConfig("family", {
+          backendOverride: "api",
+          providerRoute: "family-api",
+        }),
+      );
+    }
+  }
+
+  private clearAcpSessionMap(config: CodexRuntimeConfig): void {
+    if (config.backend !== "acp") {
+      return;
+    }
+
+    const sessionMapPath = path.join(config.workspace, ".acp-session-map.json");
+    try {
+      fs.rmSync(sessionMapPath, { force: true });
+    } catch (error) {
+      console.warn("[codex] failed to clear ACP session map", error);
+    }
   }
 
   start(): void {
@@ -364,10 +529,13 @@ export class WechatWorker {
     persistentSession: boolean;
   } {
     if (params.role === "admin") {
+      const adminConfig = this.buildRuntimeCodexConfig("admin", {
+        providerRoute: "admin-acp",
+      });
       return {
         backend: this.codexBackends.admin,
-        backendKind: "acp",
-        persistentSession: true,
+        backendKind: adminConfig.backend,
+        persistentSession: adminConfig.backend === "acp",
       };
     }
 
@@ -378,6 +546,7 @@ export class WechatWorker {
 
     const familyApiConfig = this.buildRuntimeCodexConfig("family", {
       backendOverride: "api",
+      providerRoute: "family-api",
     });
     const canUseFamilyApi = Boolean(
       familyApiConfig.apiBaseUrl && familyApiConfig.apiKey,
@@ -814,6 +983,9 @@ export class WechatWorker {
                 },
                 onCodexSettingsChanged: (changedRole) => {
                   this.rebuildCodexBackend(changedRole);
+                },
+                onProviderSettingsChanged: (changedRoutes) => {
+                  this.rebuildProviderRoutes(changedRoutes);
                 },
               });
       } catch (error) {

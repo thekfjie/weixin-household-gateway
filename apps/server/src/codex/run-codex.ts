@@ -108,12 +108,14 @@ export function buildChildEnv(invocation: {
   codexHome?: string | undefined;
   envMode: "inherit" | "minimal";
   envPassthrough: string[];
+  envOverrides?: Record<string, string> | undefined;
 }): NodeJS.ProcessEnv {
   if (invocation.envMode === "inherit") {
     const env: NodeJS.ProcessEnv = { ...process.env };
     if (invocation.codexHome) {
       env.CODEX_HOME = invocation.codexHome;
     }
+    Object.assign(env, invocation.envOverrides ?? {});
     return env;
   }
 
@@ -135,6 +137,7 @@ export function buildChildEnv(invocation: {
   if (invocation.codexHome) {
     env.CODEX_HOME = invocation.codexHome;
   }
+  Object.assign(env, invocation.envOverrides ?? {});
 
   return env;
 }

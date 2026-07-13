@@ -26,6 +26,12 @@ const ACP_AUTH_ENV_KEYS = [
   "CODEX_API_KEY",
 ] as const;
 
+const ACP_SECRET_ENV_KEYS = [
+  "CODEX_CLI_API_KEY",
+  "OPENAI_API_KEY",
+  "CODEX_API_KEY",
+] as const;
+
 interface SessionPermissionContext {
   role: UserRole;
   additionalDirectories: string[];
@@ -37,6 +43,35 @@ interface PermissionDecision {
   reason: string;
   optionId?: string;
 }
+
+interface AcpGatewayAuth {
+  baseUrl: string;
+  apiKey: string;
+  providerName: string;
+}
+
+type CodexConfig = Record<string, unknown>;
+
+const ACP_AGENT_MODE_BY_CODEX_MODE = {
+  suggest: "read-only",
+  "auto-edit": "agent",
+  "full-auto": "agent",
+} as const;
+
+const ACP_AGENT_MODE_BY_SANDBOX_MODE = {
+  "read-only": "read-only",
+  "workspace-write": "agent",
+  "danger-full-access": "agent-full-access",
+} as const;
+
+const FAMILY_ACP_PERMISSION_PROFILE = "weixin_family";
+const ACP_PERMISSION_PROFILE_ENV = "CODEX_ACP_PERMISSION_PROFILE";
+
+const UNSAFE_CONFIG_PATH_SEGMENTS = new Set([
+  "__proto__",
+  "constructor",
+  "prototype",
+]);
 
 function describeToolCall(update: {
   title?: string | null;
@@ -87,6 +122,296 @@ function defaultHome(): string | undefined {
   }
 
   return process.env.HOME ?? process.env.USERPROFILE;
+}
+
+function isJsonObject(value: unknown): value is CodexConfig {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function parseCodexConfigValue(raw: string): unknown {
+  const value = raw.trim();
+  if (!value) {
+    return "";
+  }
+
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    if (
+      value.length >= 2 &&
+      value.startsWith("'") &&
+      value.endsWith("'")
+    ) {
+      return value.slice(1, -1);
+    }
+    return value;
+  }
+}
+
+function setCodexConfigValue(
+  config: CodexConfig,
+  dottedKey: string,
+  value: unknown,
+): void {
+  const segments = dottedKey.split(".").map((segment) => segment.trim());
+  if (
+    segments.length === 0 ||
+    segments.some(
+      (segment) => !segment || UNSAFE_CONFIG_PATH_SEGMENTS.has(segment),
+    )
+  ) {
+    throw new Error(`Invalid Codex ACP config key: ${dottedKey}`);
+  }
+
+  let target = config;
+  for (const segment of segments.slice(0, -1)) {
+    const existing = target[segment];
+    if (!isJsonObject(existing)) {
+      target[segment] = {};
+    }
+    target = target[segment] as CodexConfig;
+  }
+  target[segments[segments.length - 1]!] = value;
+}
+
+function applyCodexConfigOverride(
+  config: CodexConfig,
+  override: string,
+): void {
+  const separatorIndex = override.indexOf("=");
+  if (separatorIndex <= 0) {
+    throw new Error(`Invalid Codex ACP config override: ${override}`);
+  }
+
+  setCodexConfigValue(
+    config,
+    override.slice(0, separatorIndex),
+    parseCodexConfigValue(override.slice(separatorIndex + 1)),
+  );
+}
+
+function applyLegacyAcpArgs(config: CodexConfig, args: string[]): void {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index]!;
+    if (arg === "-c" || arg === "--config") {
+      const override = args[index + 1];
+      if (!override) {
+        throw new Error(`Missing value after Codex ACP argument: ${arg}`);
+      }
+      applyCodexConfigOverride(config, override);
+      index += 1;
+      continue;
+    }
+
+    const inlineOverride =
+      arg.startsWith("-c=")
+        ? arg.slice(3)
+        : arg.startsWith("--config=")
+          ? arg.slice("--config=".length)
+          : undefined;
+    if (inlineOverride !== undefined) {
+      applyCodexConfigOverride(config, inlineOverride);
+      continue;
+    }
+
+    throw new Error(
+      `Unsupported Codex ACP argument after ACP 1.x migration: ${arg}`,
+    );
+  }
+}
+
+function readCodexConfig(env: NodeJS.ProcessEnv): CodexConfig {
+  const raw = env.CODEX_CONFIG?.trim();
+  if (!raw) {
+    return {};
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw) as unknown;
+  } catch (error) {
+    throw new Error("CODEX_CONFIG must be valid JSON", { cause: error });
+  }
+  if (!isJsonObject(parsed)) {
+    throw new Error("CODEX_CONFIG must contain a JSON object");
+  }
+  return parsed;
+}
+
+function findNodeModulesRoot(command: string): string | undefined {
+  if (!command.trim()) {
+    return undefined;
+  }
+
+  let current = path.resolve(command);
+  while (true) {
+    if (path.basename(current) === "node_modules") {
+      return current;
+    }
+    const parent = path.dirname(current);
+    if (parent === current) {
+      return undefined;
+    }
+    current = parent;
+  }
+}
+
+function configureFamilyPermissionProfile(
+  config: CodexRuntimeConfig,
+  codexConfig: CodexConfig,
+  env: NodeJS.ProcessEnv,
+): void {
+  if (!config.acpWorkspaceIsolation) {
+    return;
+  }
+
+  // Permission profiles and legacy sandbox settings are mutually exclusive.
+  delete codexConfig.sandbox_mode;
+  delete codexConfig.sandbox_workspace_write;
+
+  const filesystem: CodexConfig = {
+    ":root": "deny",
+    ":minimal": "read",
+    ":slash_tmp": "deny",
+    [path.resolve(os.tmpdir())]: "deny",
+    ":workspace_roots": "read",
+    [path.dirname(config.workspace)]: "deny",
+    [config.workspace]: "write",
+  };
+  const nodeModulesRoot =
+    findNodeModulesRoot(config.command) ??
+    findNodeModulesRoot(config.acpCommand);
+  if (nodeModulesRoot) {
+    filesystem[nodeModulesRoot] = "read";
+  }
+
+  setCodexConfigValue(
+    codexConfig,
+    `permissions.${FAMILY_ACP_PERMISSION_PROFILE}`,
+    {
+      filesystem,
+      network: { enabled: false },
+    },
+  );
+  setCodexConfigValue(
+    codexConfig,
+    "default_permissions",
+    FAMILY_ACP_PERMISSION_PROFILE,
+  );
+  const familyTempDir = path.join(config.workspace, ".tmp");
+  fs.mkdirSync(familyTempDir, { recursive: true });
+  const shellEnv: Record<string, string> = {
+    HOME: config.workspace,
+    TMPDIR: familyTempDir,
+    TMP: familyTempDir,
+    TEMP: familyTempDir,
+  };
+  for (const key of ["PATH", "USER", "USERNAME", "LOGNAME", "SHELL", "LANG", "LC_ALL"]) {
+    const value = env[key];
+    if (value) {
+      shellEnv[key] = value;
+    }
+  }
+  setCodexConfigValue(codexConfig, "shell_environment_policy", {
+    inherit: "none",
+    set: shellEnv,
+    ignore_default_excludes: false,
+  });
+  env[ACP_PERMISSION_PROFILE_ENV] = FAMILY_ACP_PERMISSION_PROFILE;
+}
+
+function collectProviderCredentialEnvKeys(codexConfig: CodexConfig): string[] {
+  const providers = codexConfig.model_providers;
+  if (!isJsonObject(providers)) {
+    return [];
+  }
+
+  return Object.values(providers)
+    .filter(isJsonObject)
+    .map((provider) => provider.env_key)
+    .filter((value): value is string => typeof value === "string" && Boolean(value));
+}
+
+export function buildAcpLaunch(config: CodexRuntimeConfig): {
+  args: string[];
+  env: NodeJS.ProcessEnv;
+  apiKey?: string;
+  gatewayAuth?: AcpGatewayAuth;
+} {
+  const env = buildAcpEnv(config);
+  // Never let a parent shell opt a non-family session into the patched profile.
+  delete env[ACP_PERMISSION_PROFILE_ENV];
+  const codexConfig = readCodexConfig(env);
+  applyLegacyAcpArgs(codexConfig, config.acpArgs);
+
+  if (config.roleOverrides?.model) {
+    setCodexConfigValue(codexConfig, "model", config.roleOverrides.model);
+  }
+  if (config.roleOverrides?.reasoningEffort) {
+    setCodexConfigValue(
+      codexConfig,
+      "model_reasoning_effort",
+      config.roleOverrides.reasoningEffort,
+    );
+  }
+
+  configureFamilyPermissionProfile(config, codexConfig, env);
+
+  const providerCredentialEnvKeys = collectProviderCredentialEnvKeys(codexConfig);
+  const apiKey = [
+    ...ACP_SECRET_ENV_KEYS,
+    ...providerCredentialEnvKeys,
+  ]
+    .map((key) => env[key])
+    .find((value): value is string => Boolean(value));
+  if (config.acpWorkspaceIsolation) {
+    for (const key of Object.keys(env)) {
+      if (
+        ACP_SECRET_ENV_KEYS.includes(
+          key as (typeof ACP_SECRET_ENV_KEYS)[number],
+        ) ||
+        providerCredentialEnvKeys.includes(key) ||
+        /(?:^|_)(?:API_KEY|TOKEN|SECRET|PASSWORD|CREDENTIALS?)(?:_|$)/i.test(key)
+      ) {
+        delete env[key];
+      }
+    }
+    delete env.DEFAULT_AUTH_REQUEST;
+  }
+
+  if (Object.keys(codexConfig).length > 0) {
+    env.CODEX_CONFIG = JSON.stringify(codexConfig);
+  }
+  if (typeof codexConfig.model_provider === "string") {
+    env.MODEL_PROVIDER ??= codexConfig.model_provider;
+  }
+  const sandboxMode = codexConfig.sandbox_mode;
+  env.INITIAL_AGENT_MODE ??= config.acpWorkspaceIsolation
+    ? "read-only"
+    : typeof sandboxMode === "string" &&
+        sandboxMode in ACP_AGENT_MODE_BY_SANDBOX_MODE
+      ? ACP_AGENT_MODE_BY_SANDBOX_MODE[
+          sandboxMode as keyof typeof ACP_AGENT_MODE_BY_SANDBOX_MODE
+        ]
+      : ACP_AGENT_MODE_BY_CODEX_MODE[config.mode];
+
+  return {
+    args: [],
+    env,
+    ...(apiKey ? { apiKey } : {}),
+    ...(config.acpWorkspaceIsolation && apiKey && config.apiBaseUrl
+      ? {
+          gatewayAuth: {
+            baseUrl: config.apiBaseUrl,
+            apiKey,
+            providerName:
+              typeof codexConfig.model_provider === "string"
+                ? codexConfig.model_provider
+                : "OpenAI-compatible gateway",
+          },
+        }
+      : {}),
+  };
 }
 
 function cleanupSubprocessStdio(proc: ChildProcess): void {
@@ -141,6 +466,8 @@ export function buildAcpEnv(config: CodexRuntimeConfig): NodeJS.ProcessEnv {
     env.CODEX_HOME = path.resolve(configuredCodexHome);
   }
 
+  env.CODEX_PATH ??= config.command;
+
   const home = env.HOME ?? env.USERPROFILE ?? defaultHome();
 
   if (home) {
@@ -180,6 +507,32 @@ export function selectAcpAuthMethod(
     return undefined;
   }
 
+  const preferredAuthEnv = env.CODEX_ACP_PREFERRED_AUTH_ENV?.trim();
+  if (preferredAuthEnv) {
+    const preferredEnvMethod = methods.find((method) => {
+      if (!isEnvAuthMethod(method)) {
+        return false;
+      }
+
+      const hasPreferredVar = method.vars.some(
+        (variable) => variable.name === preferredAuthEnv,
+      );
+      if (!hasPreferredVar) {
+        return false;
+      }
+
+      return method.vars.every((variable) => {
+        if (variable.optional) {
+          return true;
+        }
+        return Boolean(env[variable.name]);
+      });
+    });
+    if (preferredEnvMethod) {
+      return preferredEnvMethod;
+    }
+  }
+
   const readyEnvMethod = methods.find((method) => {
     if (!isEnvAuthMethod(method)) {
       return false;
@@ -194,6 +547,14 @@ export function selectAcpAuthMethod(
   });
   if (readyEnvMethod) {
     return readyEnvMethod;
+  }
+
+  const hasApiKey = Boolean(env.CODEX_API_KEY || env.OPENAI_API_KEY);
+  if (hasApiKey) {
+    const apiKeyMethod = methods.find((method) => method.id === "api-key");
+    if (apiKeyMethod) {
+      return apiKeyMethod;
+    }
   }
 
   return undefined;
@@ -259,6 +620,37 @@ function normalizePathList(paths: string[] | undefined): string[] {
   ];
 }
 
+function extractCodexPermissionParams(
+  params: RequestPermissionRequest,
+): Record<string, unknown> | undefined {
+  const meta = params._meta;
+  if (!isJsonObject(meta)) {
+    return undefined;
+  }
+  const codex = meta.codex;
+  if (!isJsonObject(codex) || !isJsonObject(codex.params)) {
+    return undefined;
+  }
+  return codex.params;
+}
+
+function extractCommandText(value: unknown): string {
+  if (!isJsonObject(value)) {
+    return "";
+  }
+
+  const command = value.command;
+  if (typeof command === "string") {
+    return command;
+  }
+  if (Array.isArray(command)) {
+    return command
+      .filter((item): item is string => typeof item === "string")
+      .join(" ");
+  }
+  return "";
+}
+
 function extractPathsFromRawInput(value: unknown): string[] {
   if (!value || typeof value !== "object") {
     return [];
@@ -278,6 +670,7 @@ function extractPathsFromRawInput(value: unknown): string[] {
     if (
       key === "path" ||
       key === "cwd" ||
+      key === "grantRoot" ||
       key.endsWith("Path") ||
       key.endsWith("_path")
     ) {
@@ -316,29 +709,23 @@ function extractAbsolutePathsFromText(text: string): string[] {
 }
 
 function extractPathsFromToolCallText(params: RequestPermissionRequest): string[] {
-  const snippets = params.toolCall.content
-    ?.map((item) =>
-      item.type === "content" && item.content.type === "text"
-        ? item.content.text
-        : "",
-    )
-    .filter(Boolean) ?? [];
-
-  const paths = snippets.flatMap((snippet) => extractAbsolutePathsFromText(snippet));
-  return [...new Set(paths)];
+  return extractAbsolutePathsFromText(extractToolCallText(params));
 }
 
 function extractToolCallText(params: RequestPermissionRequest): string {
-  return (
-    params.toolCall.content
+  return [
+    extractCommandText(params.toolCall.rawInput),
+    extractCommandText(extractCodexPermissionParams(params)),
+    ...(params.toolCall.content
       ?.map((item) =>
         item.type === "content" && item.content.type === "text"
           ? item.content.text
           : "",
       )
-      .filter(Boolean)
-      .join("\n") ?? ""
-  );
+      .filter(Boolean) ?? []),
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 const FAMILY_BLOCKED_COMMANDS =
@@ -381,6 +768,7 @@ function decidePermission(
   const touchedPaths = [
     ...(params.toolCall.locations?.map((item) => item.path) ?? []),
     ...extractPathsFromRawInput(params.toolCall.rawInput),
+    ...extractPathsFromRawInput(extractCodexPermissionParams(params)),
     ...extractPathsFromToolCallText(params),
   ]
     .filter(Boolean)
@@ -446,6 +834,18 @@ function decidePermission(
     const touchesOnlyAllowedRoots =
       touchedPaths.length > 0 &&
       touchedPaths.every((item) => allowedRoots.some((root) => isInsideDirectory(item, root)));
+    const touchesReadOnlyRoot = touchedPaths.some((item) =>
+      readOnlyRoots.some((root) => isInsideDirectory(item, root)),
+    );
+
+    if (touchesReadOnlyRoot) {
+      const option = choosePermissionOption(params.options, rejectKinds);
+      return {
+        allowed: false,
+        reason: "blocked execute inside read-only session directory",
+        ...(option ? { optionId: option.optionId } : {}),
+      };
+    }
 
     if (
       touchesOnlyAllowedRoots &&
@@ -494,6 +894,7 @@ function collectTouchedPaths(
   return [
     ...(params.toolCall.locations?.map((item) => item.path) ?? []),
     ...extractPathsFromRawInput(params.toolCall.rawInput),
+    ...extractPathsFromRawInput(extractCodexPermissionParams(params)),
     ...extractPathsFromToolCallText(params),
   ]
     .filter(Boolean)
@@ -506,6 +907,10 @@ function shouldReviewDeniedFamilyPermission(params: {
   contentText: string;
   decisionReason: string;
 }): boolean {
+  if (/read-only session directory/i.test(params.decisionReason)) {
+    return false;
+  }
+
   if (
     params.toolKind === "execute" &&
     FAMILY_NEVER_REVIEW_COMMANDS.test(params.contentText)
@@ -610,21 +1015,11 @@ export class AcpConnection {
       return this.connection;
     }
 
-    const env = buildAcpEnv(this.config);
-    const acpArgs = [...this.config.acpArgs];
-    if (this.config.roleOverrides?.model) {
-      acpArgs.push("-c", `model=${JSON.stringify(this.config.roleOverrides.model)}`);
-    }
-    if (this.config.roleOverrides?.reasoningEffort) {
-      acpArgs.push(
-        "-c",
-        `model_reasoning_effort=${JSON.stringify(this.config.roleOverrides.reasoningEffort)}`,
-      );
-    }
+    const launch = buildAcpLaunch(this.config);
 
-    const proc = spawn(this.config.acpCommand, acpArgs, {
+    const proc = spawn(this.config.acpCommand, launch.args, {
       cwd: this.config.workspace,
-      env,
+      env: launch.env,
       shell: process.platform === "win32",
       stdio: ["pipe", "pipe", "inherit"],
     });
@@ -765,7 +1160,9 @@ export class AcpConnection {
           name: "weixin-household-gateway",
           version: "0.1.0",
         },
-        clientCapabilities: {},
+        clientCapabilities: launch.gatewayAuth
+          ? { auth: { _meta: { gateway: true } } }
+          : {},
       }),
       subprocessError,
     ]);
@@ -779,19 +1176,49 @@ export class AcpConnection {
           ?.additionalDirectories,
       );
     console.log(
-      `[codex:acp] auth methods: ${describeAuthMethods(authMethods, env)}`,
+      `[codex:acp] auth methods: ${describeAuthMethods(authMethods, launch.env)}`,
     );
     console.log(
       `[codex:acp] loadSession=${this.loadSessionSupported}, additionalDirectories=${this.additionalDirectoriesSupported}`,
     );
 
+    const authSelectionEnv = launch.apiKey
+      ? { ...launch.env, OPENAI_API_KEY: launch.apiKey }
+      : launch.env;
     const authMethod =
       this.config.acpAuthMode === "none"
         ? undefined
-        : selectAcpAuthMethod(authMethods, env);
+        : launch.gatewayAuth
+          ? authMethods.find((method) => method.id === "gateway")
+          : selectAcpAuthMethod(authMethods, authSelectionEnv);
+    if (launch.gatewayAuth && !authMethod) {
+      throw new Error(
+        "codex-acp did not advertise gateway authentication required for isolated family ACP",
+      );
+    }
     if (authMethod) {
+      const authRequest =
+        authMethod.id === "gateway" && launch.gatewayAuth
+          ? {
+              methodId: authMethod.id,
+              _meta: {
+                gateway: {
+                  baseUrl: launch.gatewayAuth.baseUrl,
+                  providerName: launch.gatewayAuth.providerName,
+                  headers: {
+                    Authorization: `Bearer ${launch.gatewayAuth.apiKey}`,
+                  },
+                },
+              },
+            }
+          : authMethod.id === "api-key" && launch.apiKey
+          ? {
+              methodId: authMethod.id,
+              _meta: { "api-key": { apiKey: launch.apiKey } },
+            }
+          : { methodId: authMethod.id };
       await Promise.race([
-        conn.authenticate({ methodId: authMethod.id }),
+        conn.authenticate(authRequest),
         subprocessError,
       ]);
       console.log(

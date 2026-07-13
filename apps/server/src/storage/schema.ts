@@ -69,4 +69,11 @@ CREATE TABLE IF NOT EXISTS codex_role_settings (
   reasoning_effort TEXT,
   updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS codex_provider_routes (
+  route TEXT PRIMARY KEY CHECK(route IN ('admin-acp', 'family-api', 'family-acp')),
+  provider_name TEXT,
+  locked INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL
+);
 `;
