@@ -25,6 +25,7 @@ import {
 } from "../../codex/index.js";
 import {
   filterFamilyOutput,
+  stripCodexRuntimeNoise,
 } from "../../policy/index.js";
 import { resolveRole } from "../../router/index.js";
 import {
@@ -1059,12 +1060,10 @@ export class WechatWorker {
                     timeoutMs: this.options.config.codex[route.role].timeoutMs,
                     maxMessages: turnMessageBudget.progressMessageBudget,
                   }),
-                ...(route.role === "family"
-                  ? {
-                      filterText: (text) =>
-                        filterFamilyOutput(text, this.options.config.familyPolicy),
-                    }
-                  : {}),
+                filterText: (text) =>
+                  route.role === "family"
+                    ? filterFamilyOutput(text, this.options.config.familyPolicy)
+                    : stripCodexRuntimeNoise(text),
               })
             : undefined;
         streamingReplySender =
@@ -1182,7 +1181,7 @@ export class WechatWorker {
     const replyText =
       route.role === "family"
         ? filterFamilyOutput(rawReply, this.options.config.familyPolicy)
-        : rawReply;
+        : stripCodexRuntimeNoise(rawReply);
     const remainingReplyText =
       progressReplySender?.removeAlreadySentText(replyText) ??
       streamingReplySender?.removeAlreadySentText(replyText) ??

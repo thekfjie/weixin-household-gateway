@@ -1,3 +1,5 @@
+import { stripCodexRuntimeNoise } from "./filter-output.js";
+
 const SECRET_PATTERNS: Array<[RegExp, string]> = [
   [/\bsk-[A-Za-z0-9_-]{8,}\b/g, "sk-***"],
   [/\bBearer\s+[A-Za-z0-9._~+/=-]{12,}\b/gi, "Bearer ***"],
@@ -15,5 +17,5 @@ export function redactSensitiveText(value: string): string {
 
 export function errorToRedactedMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error);
-  return redactSensitiveText(message);
+  return stripCodexRuntimeNoise(redactSensitiveText(message));
 }

@@ -19,6 +19,17 @@ function stripReasoningLikeText(text: string): string {
     .replace(/^(?:\u5206\u6790|internal note)[:\uff1a].*$/gim, "");
 }
 
+const CODEX_MODEL_METADATA_WARNING_LINE =
+  /^(?:Warning:\s*)?Model metadata for [`'"]?[^`'\"\n]+[`'"]? not found\. Defaulting to fallback metadata; this can degrade performance and cause issues\.\s*$/gim;
+
+export function stripCodexRuntimeNoise(text: string): string {
+  const withoutWarnings = text.replace(CODEX_MODEL_METADATA_WARNING_LINE, "");
+  if (withoutWarnings === text) {
+    return text;
+  }
+  return withoutWarnings.replace(/\n{3,}/g, "\n\n").trim();
+}
+
 export function filterFamilyOutput(
   text: string,
   policy: FamilyPolicyConfig,
@@ -27,7 +38,7 @@ export function filterFamilyOutput(
     /blocked execute outside controlled workspace|blocked (?:read|write|edit|move|delete) outside controlled workspace|no safe path scope detected|usage_limit_exceeded|usage limit|OPENAI_API_KEY|CODEX_API_KEY|authenticate/i.test(
       text,
     );
-  let next = text.trim();
+  let next = stripCodexRuntimeNoise(text).trim();
 
   if (policy.stripReasoning) {
     next = stripReasoningLikeText(next);

@@ -3,6 +3,7 @@ import type {
   CodexProgressEvent,
   CodexResponseMode,
 } from "./backend-types.js";
+import { stripCodexRuntimeNoise } from "../policy/index.js";
 
 interface AcpResponseCollectorOptions {
   onProgress?: (event: CodexProgressEvent) => void;
@@ -91,6 +92,9 @@ export class AcpResponseCollector {
           kind: update.kind,
         });
         const toolKind = update.kind ?? undefined;
+        if (shouldDropToolProgress({ title, kind: toolKind })) {
+          return;
+        }
         this.options.onProgress?.({
           phase: "tool_progress",
           message: buildToolProgressMessage({
@@ -117,18 +121,20 @@ export class AcpResponseCollector {
     if (this.options.responseMode === "final_message_run") {
       return this.toFinalMessageRunText();
     }
-    return this.textChunks.join("").trim();
+    return stripCodexRuntimeNoise(this.textChunks.join("")).trim();
   }
 
   private toFinalMessageRunText(): string {
     for (let index = this.messageRuns.length - 1; index >= 0; index -= 1) {
-      const text = this.messageRuns[index]?.chunks.join("").trim() ?? "";
+      const text = stripCodexRuntimeNoise(
+        this.messageRuns[index]?.chunks.join("") ?? "",
+      ).trim();
       if (text) {
         return text;
       }
     }
 
-    return this.textChunks.join("").trim();
+    return stripCodexRuntimeNoise(this.textChunks.join("")).trim();
   }
 
   private announceCurrentMessageRun(): void {
@@ -136,7 +142,9 @@ export class AcpResponseCollector {
       return;
     }
 
-    const text = this.currentMessageRun.chunks.join("").trim();
+    const text = stripCodexRuntimeNoise(
+      this.currentMessageRun.chunks.join(""),
+    ).trim();
     if (!text) {
       return;
     }
@@ -167,6 +175,39 @@ function buildToolProgressMessage(params: {
     default:
       return `正在处理：${title}`;
   }
+}
+
+function shouldDropToolProgress(params: {
+  title: string;
+  kind?: string | undefined;
+}): boolean {
+  const title = params.title.trim();
+  const kind = params.kind?.trim().toLowerCase() ?? "";
+  if (!title) {
+    return true;
+  }
+  if (/[\r\n]/.test(title)) {
+    return true;
+  }
+  if (
+    kind === "execute" ||
+    kind === "terminal" ||
+    kind === "shell" ||
+    kind === "command"
+  ) {
+    return true;
+  }
+  if (
+    /(?:^|[;|&]\s*)(?:sudo\s+)?(?:ls|cd|pwd|echo|cat|head|tail|rg|grep|find|du|df|ps|top|sed|awk|python3?|node|npm|pnpm|yarn|git|curl|wget|chmod|chown|cp|mv|rm|mkdir|touch|readlink|which|type|file|stat|tree|jq|sqlite3|docker|systemctl|journalctl|ss|ip|uname|hostname|whoami|id|env|export|printf)\b/i.test(
+      title,
+    )
+  ) {
+    return true;
+  }
+  if (/[;&|]/.test(title) || title.length > 80) {
+    return true;
+  }
+  return false;
 }
 
 function normalizeToolTitle(params: {
