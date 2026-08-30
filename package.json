@@ -15,6 +15,7 @@
     "wechat:setup": "node dist/apps/server/setup.js",
     "accounts": "node dist/apps/server/accounts.js",
     "doctor": "node dist/apps/server/doctor.js",
+    "compat:codex": "node dist/apps/server/codex-compat-regression.js",
     "backup": "node dist/apps/server/backup.js",
     "codex:configure": "node dist/apps/server/configure-codex.js",
     "codex:api-wrapper": "node dist/apps/server/codex-api-wrapper.js",
@@ -28,9 +29,9 @@
     "typescript": "^5.9.3"
   },
   "dependencies": {
-    "@agentclientprotocol/codex-acp": "1.6.2",
-    "@agentclientprotocol/sdk": "1.3.0",
-    "@openai/codex": "0.148.0",
+    "@agentclientprotocol/codex-acp": "1.7.0",
+    "@agentclientprotocol/sdk": "1.4.0",
+    "@openai/codex": "0.151.0",
     "qrcode": "^1.5.4"
   }
 }

@@ -1,2 +1,2 @@
 patchedDependencies:
-  '@agentclientprotocol/codex-acp@1.6.2': patches/@agentclientprotocol__codex-acp@1.6.2.patch
+  '@agentclientprotocol/codex-acp@1.7.0': patches/@agentclientprotocol__codex-acp@1.7.0.patch

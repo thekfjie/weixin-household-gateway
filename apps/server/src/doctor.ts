@@ -10,6 +10,8 @@ import {
   hasAcpEnvAuth,
   resolveAcpRuntimeCodexHome,
 } from "./codex/acp-connection.js";
+import { buildCodexCommand } from "./codex/build-command.js";
+import { runCodexInvocation } from "./codex/run-codex.js";
 import { AppDatabase } from "./storage/index.js";
 import { CodexRuntimeConfig } from "./config/types.js";
 
@@ -147,6 +149,31 @@ async function checkAcpCommand(command: string): Promise<CheckResult> {
   }
 
   return ok(command, result.detail || "ACP adapter is callable");
+}
+
+async function checkCodexInvocation(
+  config: CodexRuntimeConfig,
+): Promise<CheckResult> {
+  try {
+    const result = await runCodexInvocation(
+      buildCodexCommand(config, "请只回复：doctor-ok"),
+    );
+    if (result.exitCode !== 0 || result.timedOut || result.cancelled) {
+      return fail(
+        "Codex 实际调用",
+        result.stderr.split(/\r?\n/, 1)[0] ||
+          `exit=${result.exitCode}, timedOut=${result.timedOut}, cancelled=${result.cancelled}`,
+      );
+    }
+    return result.text.includes("doctor-ok")
+      ? ok("Codex 实际调用", "doctor-ok")
+      : fail("Codex 实际调用", `意外输出：${result.text.slice(0, 160)}`);
+  } catch (error) {
+    return fail(
+      "Codex 实际调用",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
 }
 
 function checkAcpAuth(name: string, config: CodexRuntimeConfig): CheckResult {
@@ -519,12 +546,7 @@ async function run(): Promise<void> {
   }
 
   if (runCodex) {
-    results.push(
-      await checkCommand(config.codex.admin.command, [
-        ...config.codex.admin.args,
-        "请只回复：doctor-ok",
-      ]),
-    );
+    results.push(await checkCodexInvocation(config.codex.admin));
   }
 
   results.push(await checkHttpHealth(config.server.port));

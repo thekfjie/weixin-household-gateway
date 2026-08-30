@@ -1,8 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
-index eb58d3e3f2dbe774e1ed5f158cc3c9a4b46f4c5d..e9bbba82466e088215741257939a64233f5e446e 100755
+index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0a2c82138 100755
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -27284,9 +27284,10 @@ var CodexAcpClient = class {
+@@ -28110,9 +28110,10 @@ var CodexAcpClient = class {
    }
    async resumeSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -14,7 +14,7 @@ index eb58d3e3f2dbe774e1ed5f158cc3c9a4b46f4c5d..e9bbba82466e088215741257939a6423
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -27306,9 +27307,10 @@ var CodexAcpClient = class {
+@@ -28132,9 +28133,10 @@ var CodexAcpClient = class {
    }
    async loadSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -26,7 +26,7 @@ index eb58d3e3f2dbe774e1ed5f158cc3c9a4b46f4c5d..e9bbba82466e088215741257939a6423
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -27333,9 +27335,11 @@ var CodexAcpClient = class {
+@@ -28165,9 +28167,11 @@ var CodexAcpClient = class {
    }
    async newSession(request) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -39,7 +39,7 @@ index eb58d3e3f2dbe774e1ed5f158cc3c9a4b46f4c5d..e9bbba82466e088215741257939a6423
        modelProvider: this.getModelProvider(),
        cwd: request.cwd
      });
-@@ -27421,7 +27425,7 @@ var CodexAcpClient = class {
+@@ -28254,7 +28258,7 @@ var CodexAcpClient = class {
    getMcpServerStartupVersion() {
      return this.codexClient.getMcpServerStartupVersion();
    }
@@ -48,7 +48,7 @@ index eb58d3e3f2dbe774e1ed5f158cc3c9a4b46f4c5d..e9bbba82466e088215741257939a6423
      const sessionRoots = [projectPath, ...additionalDirectories];
      const activeProvider = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
-@@ -27440,7 +27444,7 @@ var CodexAcpClient = class {
+@@ -28273,7 +28277,7 @@ var CodexAcpClient = class {
          trust_level: "trusted"
        }]))
      };
@@ -57,10 +57,10 @@ index eb58d3e3f2dbe774e1ed5f158cc3c9a4b46f4c5d..e9bbba82466e088215741257939a6423
      if (mcpServers.length === 0) {
        return configWithWorkspaceRoots;
      }
-@@ -27599,7 +27603,9 @@ var CodexAcpClient = class {
-       threadId: request.sessionId,
+@@ -28421,7 +28425,9 @@ var CodexAcpClient = class {
        input,
        approvalPolicy: agentMode.approvalPolicy,
+       approvalsReviewer: agentMode.approvalsReviewer,
 -      sandboxPolicy: addAdditionalDirectoriesToSandboxPolicy(agentMode.sandboxPolicy, additionalDirectories),
 +      ...process.env["CODEX_ACP_PERMISSION_PROFILE"] === "weixin_family" ? {} : {
 +        sandboxPolicy: addAdditionalDirectoriesToSandboxPolicy(agentMode.sandboxPolicy, additionalDirectories)
@@ -68,7 +68,7 @@ index eb58d3e3f2dbe774e1ed5f158cc3c9a4b46f4c5d..e9bbba82466e088215741257939a6423
        summary: disableSummary ? "none" : "auto",
        effort,
        model: modelId.model,
-@@ -28015,10 +28021,57 @@ function readAdditionalDirectories(cwd, additionalDirectories, meta3) {
+@@ -28824,10 +28830,57 @@ function readAdditionalDirectories(cwd, additionalDirectories, meta3) {
    }
    return directories;
  }

@@ -688,6 +688,15 @@ export function loadConfig(): AppConfig {
   const sharedCliBaseUrl = readOptionalTrimmedEnv("CODEX_CLI_BASE_URL");
   const sharedCliApiKey = readOptionalTrimmedEnv("CODEX_CLI_API_KEY");
   const sharedCliModel = readOptionalTrimmedEnv("CODEX_CLI_MODEL");
+  const sharedModelInstructionsFile = readOptionalPath(
+    "CODEX_CLI_MODEL_INSTRUCTIONS_FILE",
+  );
+  const sharedModelInstructionsAcpArgs = sharedModelInstructionsFile
+    ? [
+        "-c",
+        `model_instructions_file=${JSON.stringify(sharedModelInstructionsFile)}`,
+      ]
+    : [];
   const sharedReasoningEffort =
     readReasoningEffort("CODEX_CLI_REASONING_EFFORT") ?? "high";
   const codexApiBaseUrl =
@@ -696,6 +705,14 @@ export function loadConfig(): AppConfig {
     readOptionalTrimmedEnv("CODEX_API_KEY") ?? sharedCliApiKey;
   const codexApiModel =
     readOptionalTrimmedEnv("CODEX_API_MODEL") ?? sharedCliModel ?? defaultChatModel;
+  const adminApiBaseUrl =
+    readOptionalTrimmedEnv("CODEX_ADMIN_API_BASE_URL") ?? codexApiBaseUrl;
+  const adminApiKey =
+    readOptionalTrimmedEnv("CODEX_ADMIN_API_KEY") ?? codexApiKey;
+  const familyApiBaseUrl =
+    readOptionalTrimmedEnv("CODEX_FAMILY_API_BASE_URL") ?? codexApiBaseUrl;
+  const familyApiKey =
+    readOptionalTrimmedEnv("CODEX_FAMILY_API_KEY") ?? codexApiKey;
   const fileAllowedDirs = readPathList("FILE_SEND_ALLOWED_DIRS", [
     path.join(dataDir, "outbox"),
     path.join(dataDir, "inbox"),
@@ -765,21 +782,27 @@ export function loadConfig(): AppConfig {
           "CODEX_ADMIN_ACP_COMMAND",
           resolveDefaultAcpCommand(),
         ),
-        acpArgs: readAcpArgs("CODEX_ADMIN_ACP_ARGS"),
+        acpArgs: [
+          ...sharedModelInstructionsAcpArgs,
+          ...readAcpArgs("CODEX_ADMIN_ACP_ARGS"),
+        ],
         acpAuthMode: readAcpAuthMode(
           "CODEX_ADMIN_ACP_AUTH_MODE",
           codexAcpAuthMode,
         ),
         acpWorkspaceIsolation: false,
-        apiBaseUrl: readOptionalTrimmedEnv("CODEX_ADMIN_API_BASE_URL") ?? codexApiBaseUrl,
-        apiKey: readOptionalTrimmedEnv("CODEX_ADMIN_API_KEY") ?? codexApiKey,
+        apiBaseUrl: adminApiBaseUrl,
+        apiKey: adminApiKey,
         apiModel: readOptionalEnv("CODEX_ADMIN_API_MODEL", codexApiModel),
         apiPromptCacheKeyPrefix: readOptionalEnv(
           "CODEX_ADMIN_API_PROMPT_CACHE_KEY_PREFIX",
           "wechat-admin",
         ),
         codexHome: readOptionalPath("CODEX_ADMIN_HOME") ?? readOptionalPath("CODEX_CLI_HOME"),
-        envOverrides: {},
+        envOverrides: buildProviderEnvOverrides({
+          ...(adminApiBaseUrl ? { apiBaseUrl: adminApiBaseUrl } : {}),
+          ...(adminApiKey ? { apiKey: adminApiKey } : {}),
+        }),
         roleOverrides: { reasoningEffort: sharedReasoningEffort },
         mode: adminMode,
         timeoutMs: readPositiveInteger(
@@ -811,21 +834,27 @@ export function loadConfig(): AppConfig {
           "CODEX_FAMILY_ACP_COMMAND",
           resolveDefaultAcpCommand(),
         ),
-        acpArgs: readAcpArgs("CODEX_FAMILY_ACP_ARGS"),
+        acpArgs: [
+          ...sharedModelInstructionsAcpArgs,
+          ...readAcpArgs("CODEX_FAMILY_ACP_ARGS"),
+        ],
         acpAuthMode: readAcpAuthMode(
           "CODEX_FAMILY_ACP_AUTH_MODE",
           codexAcpAuthMode,
         ),
         acpWorkspaceIsolation: true,
-        apiBaseUrl: readOptionalTrimmedEnv("CODEX_FAMILY_API_BASE_URL") ?? codexApiBaseUrl,
-        apiKey: readOptionalTrimmedEnv("CODEX_FAMILY_API_KEY") ?? codexApiKey,
+        apiBaseUrl: familyApiBaseUrl,
+        apiKey: familyApiKey,
         apiModel: readOptionalEnv("CODEX_FAMILY_API_MODEL", codexApiModel),
         apiPromptCacheKeyPrefix: readOptionalEnv(
           "CODEX_FAMILY_API_PROMPT_CACHE_KEY_PREFIX",
           "wechat-family",
         ),
         codexHome: readOptionalPath("CODEX_FAMILY_HOME") ?? readOptionalPath("CODEX_CLI_HOME"),
-        envOverrides: {},
+        envOverrides: buildProviderEnvOverrides({
+          ...(familyApiBaseUrl ? { apiBaseUrl: familyApiBaseUrl } : {}),
+          ...(familyApiKey ? { apiKey: familyApiKey } : {}),
+        }),
         roleOverrides: { reasoningEffort: sharedReasoningEffort },
         mode: familyMode,
         timeoutMs: readPositiveInteger(

@@ -42,7 +42,7 @@ CODEX_ADMIN_ACP_ARGS=-c sandbox_mode=\"danger-full-access\"
 ## Family 文件与凭据隔离
 
 `family-acp` 不使用 Codex 旧版 `read-only` 模式。旧模式虽然禁止写入，但会自动
-允许读取服务用户能读到的系统文件。项目改用 Codex 0.148.0 permission profile：
+允许读取服务用户能读到的系统文件。项目改用 Codex 0.151.0 permission profile：
 
 - `runtime/family` 可读写；
 - 当前会话的 `office`、`outbox` 可读写；
@@ -57,9 +57,9 @@ CODEX_ADMIN_ACP_ARGS=-c sandbox_mode=\"danger-full-access\"
   loopback 的本机代理转发，Codex 只拿到一次性本机头，不把真实 Key 放进 ACP/App
   Server 环境、线程配置、工具，也不会由正常认证链路写入本地日志。
 
-ACP 1.6.2 尚未原生把新版 permission profile 暴露成 ACP mode，因此项目在锁文件
+ACP 1.7.0 尚未原生把新版 permission profile 暴露成 ACP mode，因此项目在锁文件
 中固定了一个小范围适配器补丁。`pnpm install --frozen-lockfile` 会自动应用
-`patches/@agentclientprotocol__codex-acp@1.6.2.patch`。doctor 会检查 profile、
+`patches/@agentclientprotocol__codex-acp@1.7.0.patch`。doctor 会检查 profile、
 子进程凭据环境和隔离网关鉴权是否同时生效。
 
 ## bubblewrap/bwrap
@@ -105,13 +105,14 @@ CODEX_CLI_AUTH_MODE=api_key
 CODEX_CLI_BASE_URL=https://your-openai-compatible-endpoint/v1
 CODEX_CLI_API_KEY=sk-...
 CODEX_CLI_MODEL=gpt-5.6-sol
+CODEX_CLI_MODEL_INSTRUCTIONS_FILE=/absolute/path/to/model-instructions.md
 CODEX_CLI_REVIEW_MODEL=gpt-5.5
 CODEX_CLI_REASONING_EFFORT=high
 ```
 
 思考强度按模型校验：`gpt-5.6-sol` / `terra` 支持 `low` 到 `ultra`，
 `gpt-5.6-luna` 支持 `low` 到 `max`，`gpt-5.5` 支持 `low` 到 `xhigh`。
-`none`、`minimal` 只对明确支持这些档位的未知第三方模型透传；当前 Codex 0.148.0
+`none`、`minimal` 只对明确支持这些档位的未知第三方模型透传；当前 Codex 0.151.0
 目录中的上述模型不支持这两个档位。
 
 family 权限审核默认模型单独是：

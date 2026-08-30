@@ -169,6 +169,18 @@ function buildConfigToml(env: DotEnv): string {
   const wireApi = readValue(env, "CODEX_CLI_WIRE_API", "responses");
   const defaultModel = readValue(env, "CODEX_DEFAULT_MODEL", "gpt-5.6-sol");
   const model = readValue(env, "CODEX_CLI_MODEL", defaultModel);
+  const modelInstructionsFileValue = readOptionalValue(
+    env,
+    "CODEX_CLI_MODEL_INSTRUCTIONS_FILE",
+  );
+  const modelInstructionsFile = modelInstructionsFileValue
+    ? path.resolve(modelInstructionsFileValue)
+    : undefined;
+  if (modelInstructionsFile && !fs.existsSync(modelInstructionsFile)) {
+    throw new Error(
+      `CODEX_CLI_MODEL_INSTRUCTIONS_FILE 不存在：${modelInstructionsFile}`,
+    );
+  }
   const reviewModel = readValue(env, "CODEX_CLI_REVIEW_MODEL", model);
   const reasoningEffort = readValue(env, "CODEX_CLI_REASONING_EFFORT", "high");
   if (!isCodexReasoningEffort(reasoningEffort)) {
@@ -213,6 +225,9 @@ function buildConfigToml(env: DotEnv): string {
   return [
     `model_provider = ${tomlString(provider)}`,
     `model = ${tomlString(model)}`,
+    ...(modelInstructionsFile
+      ? [`model_instructions_file = ${tomlString(modelInstructionsFile)}`]
+      : []),
     `review_model = ${tomlString(reviewModel)}`,
     `model_reasoning_effort = ${tomlString(reasoningEffort)}`,
     `disable_response_storage = ${disableResponseStorage ? "true" : "false"}`,

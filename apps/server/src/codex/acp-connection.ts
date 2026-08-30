@@ -14,7 +14,6 @@ import {
   type PermissionOption,
   type RequestPermissionRequest,
   type AuthMethod,
-  type AuthMethodEnvVar,
 } from "@agentclientprotocol/sdk";
 import { CodexRuntimeConfig, UserRole } from "../config/types.js";
 import { isInsideDirectory } from "../files/path-utils.js";
@@ -51,6 +50,16 @@ interface AcpGatewayAuth {
   baseUrl: string;
   apiKey: string;
   providerName: string;
+}
+
+interface LegacyEnvAuthMethod {
+  id: string;
+  name: string;
+  type: "env_var";
+  vars: Array<{
+    name: string;
+    optional?: boolean | undefined;
+  }>;
 }
 
 interface AcpGatewayProxy {
@@ -516,6 +525,13 @@ function configureFamilyPermissionProfile(
   if (nodeModulesRoot) {
     filesystem[nodeModulesRoot] = "read";
   }
+  const modelInstructionsFile = codexConfig.model_instructions_file;
+  if (
+    typeof modelInstructionsFile === "string" &&
+    path.isAbsolute(modelInstructionsFile)
+  ) {
+    filesystem[path.resolve(modelInstructionsFile)] = "read";
+  }
 
   setCodexConfigValue(
     codexConfig,
@@ -735,10 +751,28 @@ function authMethodType(method: AuthMethod): string {
   return "type" in method && method.type ? method.type : "agent";
 }
 
-function isEnvAuthMethod(
+function asLegacyEnvAuthMethod(
   method: AuthMethod,
-): method is AuthMethodEnvVar & { type: "env_var" } {
-  return "type" in method && method.type === "env_var";
+): LegacyEnvAuthMethod | undefined {
+  const candidate = method as unknown as Record<string, unknown>;
+  if (candidate.type !== "env_var" || !Array.isArray(candidate.vars)) {
+    return undefined;
+  }
+
+  const vars = candidate.vars.filter(
+    (variable): variable is { name: string; optional?: boolean | undefined } =>
+      isJsonObject(variable) && typeof variable.name === "string",
+  );
+  if (vars.length !== candidate.vars.length) {
+    return undefined;
+  }
+
+  return {
+    id: method.id,
+    name: method.name,
+    type: "env_var",
+    vars,
+  };
 }
 
 export function selectAcpAuthMethod(
@@ -752,18 +786,19 @@ export function selectAcpAuthMethod(
   const preferredAuthEnv = env.CODEX_ACP_PREFERRED_AUTH_ENV?.trim();
   if (preferredAuthEnv) {
     const preferredEnvMethod = methods.find((method) => {
-      if (!isEnvAuthMethod(method)) {
+      const legacyMethod = asLegacyEnvAuthMethod(method);
+      if (!legacyMethod) {
         return false;
       }
 
-      const hasPreferredVar = method.vars.some(
+      const hasPreferredVar = legacyMethod.vars.some(
         (variable) => variable.name === preferredAuthEnv,
       );
       if (!hasPreferredVar) {
         return false;
       }
 
-      return method.vars.every((variable) => {
+      return legacyMethod.vars.every((variable) => {
         if (variable.optional) {
           return true;
         }
@@ -776,11 +811,12 @@ export function selectAcpAuthMethod(
   }
 
   const readyEnvMethod = methods.find((method) => {
-    if (!isEnvAuthMethod(method)) {
+    const legacyMethod = asLegacyEnvAuthMethod(method);
+    if (!legacyMethod) {
       return false;
     }
 
-    return method.vars.every((variable) => {
+    return legacyMethod.vars.every((variable) => {
       if (variable.optional) {
         return true;
       }
@@ -818,11 +854,12 @@ function describeAuthMethods(
   return methods
     .map((method) => {
       const type = authMethodType(method);
-      if (!isEnvAuthMethod(method)) {
+      const legacyMethod = asLegacyEnvAuthMethod(method);
+      if (!legacyMethod) {
         return `${method.id}:${type}`;
       }
 
-      const vars = method.vars
+      const vars = legacyMethod.vars
         .map((variable) => `${variable.name}=${Boolean(env[variable.name])}`)
         .join(",");
       return `${method.id}:${type}[${vars}]`;
@@ -833,11 +870,12 @@ function describeAuthMethods(
 function requiredAuthEnvVars(methods: AuthMethod[] | undefined): string[] {
   const names = new Set<string>();
   for (const method of methods ?? []) {
-    if (!isEnvAuthMethod(method)) {
+    const legacyMethod = asLegacyEnvAuthMethod(method);
+    if (!legacyMethod) {
       continue;
     }
 
-    for (const variable of method.vars) {
+    for (const variable of legacyMethod.vars) {
       if (!variable.optional) {
         names.add(variable.name);
       }
