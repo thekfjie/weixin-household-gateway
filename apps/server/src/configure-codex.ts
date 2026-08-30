@@ -192,12 +192,6 @@ function buildConfigToml(env: DotEnv): string {
       `${model} 不支持 reasoning=${reasoningEffort}；可选：${supported.join(", ")}`,
     );
   }
-  const disableResponseStorage = readBool(
-    env,
-    "CODEX_CLI_DISABLE_RESPONSE_STORAGE",
-    true,
-  );
-  const networkAccess = readValue(env, "CODEX_CLI_NETWORK_ACCESS", "enabled");
   const contextWindow = readPositiveInteger(
     env,
     "CODEX_CLI_CONTEXT_WINDOW",
@@ -230,9 +224,6 @@ function buildConfigToml(env: DotEnv): string {
       : []),
     `review_model = ${tomlString(reviewModel)}`,
     `model_reasoning_effort = ${tomlString(reasoningEffort)}`,
-    `disable_response_storage = ${disableResponseStorage ? "true" : "false"}`,
-    `network_access = ${tomlString(networkAccess)}`,
-    "windows_wsl_setup_acknowledged = true",
     `model_context_window = ${contextWindow}`,
     `model_auto_compact_token_limit = ${compactLimit}`,
     "",
