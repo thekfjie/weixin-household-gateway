@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
+import { fileURLToPath } from "node:url";
 
 import { InboundTaskQueue } from "../dist/apps/server/transport/ilink/inbound-task-queue.js";
 import { sendTextMessage } from "../dist/apps/server/transport/ilink/media.js";
@@ -8,6 +13,8 @@ import {
   WECHAT_TEXT_MAX_UTF8_BYTES,
   splitWechatText,
 } from "../dist/apps/server/transport/ilink/text-chunks.js";
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 test("long WeChat text is split without truncating content", () => {
   const text = Array.from(
@@ -89,4 +96,54 @@ test("a failed inbound task does not block later messages", async () => {
   await assert.rejects(failed, /expected failure/);
   await next;
   assert.deepEqual(events, ["continued"]);
+});
+
+test("configure-codex refuses to copy the wxbot key into another Codex home", () => {
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), "wxbot-codex-home-"));
+  const wxbotHome = path.join(fixture, "wxbot-home");
+  const personalHome = path.join(fixture, "personal-home");
+  const personalAuth = {
+    auth_mode: "apikey",
+    OPENAI_API_KEY: "sk-personal-regression-key",
+  };
+
+  fs.mkdirSync(personalHome, { recursive: true });
+  fs.writeFileSync(
+    path.join(personalHome, "auth.json"),
+    `${JSON.stringify(personalAuth)}\n`,
+    { mode: 0o600 },
+  );
+  fs.writeFileSync(
+    path.join(fixture, ".env"),
+    [
+      `CODEX_CLI_HOME=${wxbotHome}`,
+      "CODEX_CLI_AUTH_MODE=api_key",
+      "CODEX_CLI_API_KEY=sk-wxbot-regression-key",
+      "CODEX_CLI_MODEL=gpt-5.6-sol",
+      "CODEX_CLI_REASONING_EFFORT=high",
+      "",
+    ].join("\n"),
+  );
+
+  const childEnv = { ...process.env, CODEX_CLI_HOME: personalHome };
+  delete childEnv.CODEX_CLI_API_KEY;
+  delete childEnv.CODEX_CLI_AUTH_MODE;
+  delete childEnv.CODEX_CLI_ALLOW_CROSS_HOME_APPLY;
+
+  const result = spawnSync(
+    process.execPath,
+    [path.join(repoRoot, "dist/apps/server/configure-codex.js"), "--apply"],
+    {
+      cwd: fixture,
+      encoding: "utf8",
+      env: childEnv,
+    },
+  );
+
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /拒绝跨 Codex Home 写入/);
+  assert.deepEqual(
+    JSON.parse(fs.readFileSync(path.join(personalHome, "auth.json"), "utf8")),
+    personalAuth,
+  );
 });

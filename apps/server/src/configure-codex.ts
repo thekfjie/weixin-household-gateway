@@ -31,6 +31,11 @@ function usage(): string {
     "  CODEX_CLI_MODEL=gpt-5.6-sol",
     "  CODEX_CLI_APPROVAL_POLICY=never",
     "  CODEX_CLI_SANDBOX_MODE=danger-full-access",
+    "",
+    "跨 Home 写入保护：",
+    "  若进程环境覆盖了 .env 中的 CODEX_CLI_HOME，--apply 默认拒绝执行。",
+    "  确需跨 Home 时，必须同时显式设置 CODEX_CLI_ALLOW_CROSS_HOME_APPLY=1",
+    "  和目标 CODEX_CLI_API_KEY，避免把 wxbot 密钥写入个人 Codex。",
   ].join("\n");
 }
 
@@ -305,6 +310,13 @@ function resolveCodexHome(env: DotEnv): string {
   return path.resolve(configuredHome ?? path.join(os.homedir(), ".codex"));
 }
 
+function resolveDotEnvCodexHome(env: DotEnv): string | undefined {
+  const configuredHome =
+    env.CODEX_CLI_HOME ?? env.CODEX_ADMIN_HOME ?? env.CODEX_FAMILY_HOME;
+
+  return configuredHome ? path.resolve(configuredHome) : undefined;
+}
+
 function run(): void {
   const args = process.argv.slice(2);
   if (args.includes("-h") || args.includes("--help")) {
@@ -318,12 +330,27 @@ function run(): void {
   const apiKey = readValue(env, "CODEX_CLI_API_KEY");
   const codexCommand = readValue(env, "CODEX_ADMIN_COMMAND", "codex");
   const codexHome = resolveCodexHome(env);
+  const dotEnvCodexHome = resolveDotEnvCodexHome(env);
   const configPath = path.join(codexHome, "config.toml");
   const authPath = path.join(codexHome, "auth.json");
   const configToml = buildConfigToml(env);
 
   if (authMode === "api_key" && !apiKey) {
     throw new Error("CODEX_CLI_AUTH_MODE=api_key 时必须设置 CODEX_CLI_API_KEY");
+  }
+
+  if (apply && dotEnvCodexHome && codexHome !== dotEnvCodexHome) {
+    if (process.env.CODEX_CLI_ALLOW_CROSS_HOME_APPLY !== "1") {
+      throw new Error(
+        `拒绝跨 Codex Home 写入：目标 ${codexHome}，wxbot 配置 ${dotEnvCodexHome}。` +
+          " 如确需执行，请显式设置 CODEX_CLI_ALLOW_CROSS_HOME_APPLY=1 和目标 CODEX_CLI_API_KEY。",
+      );
+    }
+    if (authMode === "api_key" && process.env.CODEX_CLI_API_KEY === undefined) {
+      throw new Error(
+        "跨 Codex Home 写入必须在进程环境中显式设置目标 CODEX_CLI_API_KEY，禁止沿用 wxbot .env 密钥。",
+      );
+    }
   }
 
   console.log(`Codex home: ${codexHome}`);
