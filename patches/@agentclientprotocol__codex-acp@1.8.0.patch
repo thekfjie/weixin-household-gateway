@@ -1,8 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
-index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0a2c82138 100755
+index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f4963dfc51f 100755
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -28110,9 +28110,10 @@ var CodexAcpClient = class {
+@@ -28221,9 +28221,10 @@ var CodexAcpClient = class {
    }
    async resumeSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -14,7 +14,20 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -28132,9 +28133,10 @@ var CodexAcpClient = class {
+@@ -28243,10 +28244,11 @@ var CodexAcpClient = class {
+   }
+   async forkSession(request) {
+     const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
++    const readOnlyDirectories = readMetaReadOnlyDirectories(request._meta);
+     return await forkSession(request, additionalDirectories, {
+       codexClient: this.codexClient,
+       refreshSkills: (cwd, directories) => this.refreshSkills(cwd, directories),
+-      createSessionConfig: (cwd, directories, mcpServers) => this.createSessionConfig(cwd, directories, mcpServers),
++      createSessionConfig: (cwd, directories, mcpServers) => this.createSessionConfig(cwd, directories, mcpServers, readOnlyDirectories),
+       getResumeModelProvider: () => this.getResumeModelProvider(),
+       fetchAvailableModels: () => this.fetchAvailableModels(),
+       createCurrentModelId: (models, model, reasoningEffort) => this.createModelId(models, model, reasoningEffort).toString(),
+@@ -28255,9 +28257,10 @@ var CodexAcpClient = class {
    }
    async loadSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -26,7 +39,7 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -28165,9 +28167,11 @@ var CodexAcpClient = class {
+@@ -28288,9 +28291,11 @@ var CodexAcpClient = class {
    }
    async newSession(request) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -39,7 +52,7 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
        modelProvider: this.getModelProvider(),
        cwd: request.cwd
      });
-@@ -28254,7 +28258,7 @@ var CodexAcpClient = class {
+@@ -28380,7 +28385,7 @@ var CodexAcpClient = class {
    getMcpServerStartupVersion() {
      return this.codexClient.getMcpServerStartupVersion();
    }
@@ -48,7 +61,7 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
      const sessionRoots = [projectPath, ...additionalDirectories];
      const activeProvider = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
-@@ -28273,7 +28277,7 @@ var CodexAcpClient = class {
+@@ -28399,7 +28404,7 @@ var CodexAcpClient = class {
          trust_level: "trusted"
        }]))
      };
@@ -57,7 +70,7 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
      if (mcpServers.length === 0) {
        return configWithWorkspaceRoots;
      }
-@@ -28421,7 +28425,9 @@ var CodexAcpClient = class {
+@@ -28547,7 +28552,9 @@ var CodexAcpClient = class {
        input,
        approvalPolicy: agentMode.approvalPolicy,
        approvalsReviewer: agentMode.approvalsReviewer,
@@ -68,7 +81,7 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
        summary: disableSummary ? "none" : "auto",
        effort,
        model: modelId.model,
-@@ -28824,10 +28830,57 @@ function readAdditionalDirectories(cwd, additionalDirectories, meta3) {
+@@ -28956,10 +28963,57 @@ function readAdditionalDirectories(cwd, additionalDirectories, meta3) {
    }
    return directories;
  }
@@ -79,7 +92,7 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
 +  if (!Array.isArray(rawDirectories)) {
 +    return [];
 +  }
-+  return uniqueStrings(rawDirectories.filter((value) => typeof value === "string" && path4.isAbsolute(value)));
++  return uniqueStrings(rawDirectories.filter((value) => typeof value === "string" && path7.isAbsolute(value)));
 +}
 +function mergeSandboxWorkspaceWriteRoots(config2, roots, readOnlyRoots = []) {
    if (roots.length === 0) {
@@ -94,17 +107,17 @@ index 3e8bb8292a5441cf1e9be1b68965a1ddbfc62fda..00f27aa801803cc008327220ae2304e0
 +    const readOnlyRootSet = new Set(readOnlyRoots);
 +    const writableRoots = roots.filter((root) => !readOnlyRootSet.has(root));
 +    const conflictingRoot = writableRoots.find((writableRoot) => readOnlyRoots.some((readOnlyRoot) => {
-+      if (path4.dirname(writableRoot) === path4.dirname(readOnlyRoot)) {
++      if (path7.dirname(writableRoot) === path7.dirname(readOnlyRoot)) {
 +        return true;
 +      }
-+      const writableRelative = path4.relative(writableRoot, readOnlyRoot);
-+      const readOnlyRelative = path4.relative(readOnlyRoot, writableRoot);
-+      return writableRelative === "" || !writableRelative.startsWith(".." + path4.sep) && writableRelative !== ".." && !path4.isAbsolute(writableRelative) || !readOnlyRelative.startsWith(".." + path4.sep) && readOnlyRelative !== ".." && !path4.isAbsolute(readOnlyRelative);
++      const writableRelative = path7.relative(writableRoot, readOnlyRoot);
++      const readOnlyRelative = path7.relative(readOnlyRoot, writableRoot);
++      return writableRelative === "" || !writableRelative.startsWith(".." + path7.sep) && writableRelative !== ".." && !path7.isAbsolute(writableRelative) || !readOnlyRelative.startsWith(".." + path7.sep) && readOnlyRelative !== ".." && !path7.isAbsolute(readOnlyRelative);
 +    }));
 +    if (conflictingRoot) {
 +      throw new Error("Family ACP read-only and writable roots must use separate, non-overlapping parent directories");
 +    }
-+    const writableParentRules = Object.fromEntries(uniqueStrings(writableRoots.map((root) => path4.dirname(root)).filter((parent) => parent !== path4.parse(parent).root)).map((parent) => [parent, "deny"]));
++    const writableParentRules = Object.fromEntries(uniqueStrings(writableRoots.map((root) => path7.dirname(root)).filter((parent) => parent !== path7.parse(parent).root)).map((parent) => [parent, "deny"]));
 +    return {
 +      ...config2,
 +      permissions: {

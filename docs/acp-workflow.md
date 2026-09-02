@@ -4,9 +4,9 @@
 后续改 collector、权限策略、微信过程输出或 final answer 提取时，优先参考
 这里。
 
-当前项目使用 `@agentclientprotocol/codex-acp` `1.7.0`、
+当前项目使用 `@agentclientprotocol/codex-acp` `1.8.0`、
 `@agentclientprotocol/sdk` `1.4.0`，并在项目锁文件中固定 `@openai/codex`
-`0.151.0`。适配器会把图片生成作为 tool call 事件发出；项目侧统一按
+`0.152.1`。适配器会把图片生成作为 tool call 事件发出；项目侧统一按
 `tool_call/tool_call_update` 归一成 `tool_progress`，再由微信发送层按角色限频和过滤。
 
 ## 适用路径
@@ -213,8 +213,8 @@ deterministic carryover 不调用小模型，只由当前已有摘要、最近�
 - 部分被拒请求会进入小模型权限复核；
 - 包管理、系统安装、服务操作即使复核也应保守拒绝。
 
-`@agentclientprotocol/codex-acp` `1.7.0` 仍会在每轮请求中发送旧版
-`sandboxPolicy`，这会覆盖 Codex 0.151.0 的 permission profile。项目通过
+`@agentclientprotocol/codex-acp` `1.8.0` 仍会在每轮请求中发送旧版
+`sandboxPolicy`，这会覆盖 Codex 0.152.1 的 permission profile。项目通过
 `pnpm-lock.yaml` 中固定的依赖补丁，在 family 启用 profile 时省略该覆盖，并把
 ACP `additionalDirectories` 合并为本次会话的精确 workspace roots。安装和更新必须
 使用 `pnpm install --frozen-lockfile`，不能绕过锁文件安装未补丁的适配器。
