@@ -57,6 +57,7 @@ import {
 import {
   normalizeInboundWechatMessages,
 } from "./inbound.js";
+import { InboundTaskQueue } from "./inbound-task-queue.js";
 import {
   splitReplyTextBySystemNotice,
   buildCodexErrorReply,
@@ -253,6 +254,8 @@ export class WechatWorker {
   private readonly activeTurns = new Map<string, ActiveTurn>();
 
   private readonly inboundTasks = new Set<Promise<void>>();
+
+  private readonly inboundTaskQueue = new InboundTaskQueue();
 
   private codexBackends: Record<"admin" | "family-acp" | "family-api", CodexBackend>;
 
@@ -509,11 +512,23 @@ export class WechatWorker {
     client: ILinkApiClient,
     inbound: ReturnType<typeof normalizeInboundWechatMessages>[number],
   ): void {
-    const task = this.handleInboundMessage(account, client, inbound).catch(
-      (error) => {
+    const run = async (): Promise<void> => {
+      try {
+        await this.handleInboundMessage(account, client, inbound);
+      } catch (error) {
         console.error("[worker] inbound message task failed", error);
-      },
-    );
+      }
+    };
+    const command = parseBuiltInCommand(inbound.text);
+    const task = isStopCommand(command)
+      ? run()
+      : this.inboundTaskQueue.enqueue(
+          this.getActiveTurnKey({
+            wechatAccountId: inbound.wechatAccountId,
+            contactId: inbound.contactId,
+          }),
+          run,
+        );
     this.inboundTasks.add(task);
     task.finally(() => {
       this.inboundTasks.delete(task);
@@ -733,35 +748,6 @@ export class WechatWorker {
         existingActiveTurn.controller.abort();
         await existingActiveTurn.backend?.cancel(existingActiveTurn.conversationId);
       }
-      const clientId = await sendTextMessage({
-        client,
-        toUserId: inbound.contactId,
-        contextToken: inbound.contextToken,
-        text: reply,
-      });
-      this.options.database.appendMessage({
-        id: buildMessageId("outbound"),
-        sessionId: activeSession.id,
-        direction: "outbound",
-        messageType: "text",
-        textContent: reply,
-        createdAt: new Date().toISOString(),
-        sourceMessageId: clientId || inbound.sourceMessageId,
-      });
-      return;
-    }
-
-    if (existingActiveTurn) {
-      this.options.database.appendMessage({
-        id: buildMessageId("inbound"),
-        sessionId: activeSession.id,
-        direction: "inbound",
-        messageType: "text",
-        textContent: [inbound.mediaSummary, inbound.text].filter(Boolean).join("\n"),
-        createdAt: inbound.receivedAt,
-        sourceMessageId: inbound.sourceMessageId,
-      });
-      const reply = "上一轮还在处理。需要中止的话请发送 /stop。";
       const clientId = await sendTextMessage({
         client,
         toUserId: inbound.contactId,
