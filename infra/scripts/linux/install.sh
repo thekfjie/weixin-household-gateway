@@ -859,6 +859,8 @@ build_env_pairs() {
   local codex_provider_name="OpenAI"
   local admin_args="exec --skip-git-repo-check"
   local admin_acp_args=""
+  local codex_approval_policy="on-request"
+  local codex_sandbox_mode="workspace-write"
 
   codex_home="$(service_user_home)/.codex"
 
@@ -870,6 +872,8 @@ build_env_pairs() {
   if [[ "${PERMISSION_MODE}" != "none" ]]; then
     admin_args="exec --skip-git-repo-check -s danger-full-access"
     admin_acp_args='-c sandbox_mode=\"danger-full-access\"'
+    codex_approval_policy="never"
+    codex_sandbox_mode="danger-full-access"
   fi
 
   cat <<EOF
@@ -926,6 +930,8 @@ CODEX_CLI_BASE_URL=${CODEX_CLI_BASE_URL}
 CODEX_CLI_API_KEY=${CODEX_CLI_API_KEY}
 CODEX_CLI_WIRE_API=responses
 CODEX_CLI_MODEL=${CODEX_CLI_MODEL}
+CODEX_CLI_APPROVAL_POLICY=${codex_approval_policy}
+CODEX_CLI_SANDBOX_MODE=${codex_sandbox_mode}
 CODEX_CLI_REVIEW_MODEL=${CODEX_CLI_REVIEW_MODEL}
 CODEX_CLI_REASONING_EFFORT=${CODEX_CLI_REASONING_EFFORT}
 CODEX_CLI_DISABLE_RESPONSE_STORAGE=true

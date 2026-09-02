@@ -35,6 +35,18 @@ CODEX_ADMIN_ARGS=exec --skip-git-repo-check -s danger-full-access
 CODEX_ADMIN_ACP_ARGS=-c sandbox_mode=\"danger-full-access\"
 ```
 
+Codex 的审批策略和沙箱是两项独立配置：`sandbox_mode` 决定命令能访问什么，
+`approval_policy` 决定命令执行前是否暂停确认。需要让本机交互式 CLI 也使用
+完整权限且不再逐次确认时，配置：
+
+```dotenv
+CODEX_CLI_APPROVAL_POLICY=never
+CODEX_CLI_SANDBOX_MODE=danger-full-access
+```
+
+`configure-codex.js --apply` 会把这两项写入实际生效的 `config.toml`，避免升级
+或重新生成配置时只保留沙箱设置而丢失审批策略。
+
 这只作用于 `admin`。`family` 强制使用项目的 `weixin_family` permission profile；
 其中的旧版 `sandbox_mode` / `sandbox_workspace_write` 参数会被移除，不能用
 `CODEX_FAMILY_ACP_ARGS` 把 family 切到 `danger-full-access`。
@@ -105,6 +117,8 @@ CODEX_CLI_AUTH_MODE=api_key
 CODEX_CLI_BASE_URL=https://your-openai-compatible-endpoint/v1
 CODEX_CLI_API_KEY=sk-...
 CODEX_CLI_MODEL=gpt-5.6-sol
+CODEX_CLI_APPROVAL_POLICY=never
+CODEX_CLI_SANDBOX_MODE=danger-full-access
 CODEX_CLI_MODEL_INSTRUCTIONS_FILE=/absolute/path/to/model-instructions.md
 CODEX_CLI_REVIEW_MODEL=gpt-5.5
 CODEX_CLI_REASONING_EFFORT=high

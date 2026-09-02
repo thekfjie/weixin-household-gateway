@@ -8,6 +8,8 @@ import {
 } from "./config/reasoning.js";
 
 type CodexCliAuthMode = "login" | "api_key";
+type CodexApprovalPolicy = "untrusted" | "on-request" | "never";
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
 
 interface DotEnv {
   [key: string]: string | undefined;
@@ -27,6 +29,8 @@ function usage(): string {
     "  CODEX_CLI_BASE_URL=https://你的-sub2api/v1",
     "  CODEX_CLI_API_KEY=sk-...",
     "  CODEX_CLI_MODEL=gpt-5.6-sol",
+    "  CODEX_CLI_APPROVAL_POLICY=never",
+    "  CODEX_CLI_SANDBOX_MODE=danger-full-access",
   ].join("\n");
 }
 
@@ -122,6 +126,32 @@ function readAuthMode(env: DotEnv): CodexCliAuthMode {
   return raw;
 }
 
+function readApprovalPolicy(env: DotEnv): CodexApprovalPolicy {
+  const raw = readValue(env, "CODEX_CLI_APPROVAL_POLICY", "on-request");
+  if (raw !== "untrusted" && raw !== "on-request" && raw !== "never") {
+    throw new Error(
+      "CODEX_CLI_APPROVAL_POLICY 只能是 untrusted、on-request 或 never",
+    );
+  }
+
+  return raw;
+}
+
+function readSandboxMode(env: DotEnv): CodexSandboxMode {
+  const raw = readValue(env, "CODEX_CLI_SANDBOX_MODE", "workspace-write");
+  if (
+    raw !== "read-only" &&
+    raw !== "workspace-write" &&
+    raw !== "danger-full-access"
+  ) {
+    throw new Error(
+      "CODEX_CLI_SANDBOX_MODE 只能是 read-only、workspace-write 或 danger-full-access",
+    );
+  }
+
+  return raw;
+}
+
 function tomlString(value: string): string {
   return JSON.stringify(value);
 }
@@ -182,6 +212,8 @@ function buildConfigToml(env: DotEnv): string {
     );
   }
   const reviewModel = readValue(env, "CODEX_CLI_REVIEW_MODEL", model);
+  const approvalPolicy = readApprovalPolicy(env);
+  const sandboxMode = readSandboxMode(env);
   const reasoningEffort = readValue(env, "CODEX_CLI_REASONING_EFFORT", "high");
   if (!isCodexReasoningEffort(reasoningEffort)) {
     throw new Error(`CODEX_CLI_REASONING_EFFORT 不是有效档位：${reasoningEffort}`);
@@ -219,6 +251,8 @@ function buildConfigToml(env: DotEnv): string {
   return [
     `model_provider = ${tomlString(provider)}`,
     `model = ${tomlString(model)}`,
+    `approval_policy = ${tomlString(approvalPolicy)}`,
+    `sandbox_mode = ${tomlString(sandboxMode)}`,
     ...(modelInstructionsFile
       ? [`model_instructions_file = ${tomlString(modelInstructionsFile)}`]
       : []),
