@@ -1,8 +1,8 @@
 diff --git a/dist/index.js b/dist/index.js
-index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f4963dfc51f 100755
+index 58ec2616386c0c48e8da8c30fb11cc95b270017d..65def8c8e7b3bbd149f1eba0f755b86532eb2bb0 100755
 --- a/dist/index.js
 +++ b/dist/index.js
-@@ -28221,9 +28221,10 @@ var CodexAcpClient = class {
+@@ -28338,9 +28338,10 @@ var CodexAcpClient = class {
    }
    async resumeSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -14,7 +14,7 @@ index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f49
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -28243,10 +28244,11 @@ var CodexAcpClient = class {
+@@ -28360,10 +28361,11 @@ var CodexAcpClient = class {
    }
    async forkSession(request) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -27,7 +27,7 @@ index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f49
        getResumeModelProvider: () => this.getResumeModelProvider(),
        fetchAvailableModels: () => this.fetchAvailableModels(),
        createCurrentModelId: (models, model, reasoningEffort) => this.createModelId(models, model, reasoningEffort).toString(),
-@@ -28255,9 +28257,10 @@ var CodexAcpClient = class {
+@@ -28372,9 +28374,10 @@ var CodexAcpClient = class {
    }
    async loadSession(request, onSubscribed) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -39,7 +39,7 @@ index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f49
        cwd: request.cwd,
        modelProvider: await this.getResumeModelProvider(),
        threadId: request.sessionId
-@@ -28288,9 +28291,11 @@ var CodexAcpClient = class {
+@@ -28405,9 +28408,11 @@ var CodexAcpClient = class {
    }
    async newSession(request) {
      const additionalDirectories = readAdditionalDirectories(request.cwd, request.additionalDirectories, request._meta);
@@ -52,7 +52,7 @@ index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f49
        modelProvider: this.getModelProvider(),
        cwd: request.cwd
      });
-@@ -28380,7 +28385,7 @@ var CodexAcpClient = class {
+@@ -28497,7 +28502,7 @@ var CodexAcpClient = class {
    getMcpServerStartupVersion() {
      return this.codexClient.getMcpServerStartupVersion();
    }
@@ -61,7 +61,7 @@ index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f49
      const sessionRoots = [projectPath, ...additionalDirectories];
      const activeProvider = this.gatewayConfig ? {
        apiType: gatewayApiTypeFromConfig(this.gatewayConfig),
-@@ -28399,7 +28404,7 @@ var CodexAcpClient = class {
+@@ -28516,7 +28521,7 @@ var CodexAcpClient = class {
          trust_level: "trusted"
        }]))
      };
@@ -70,7 +70,7 @@ index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f49
      if (mcpServers.length === 0) {
        return configWithWorkspaceRoots;
      }
-@@ -28547,7 +28552,9 @@ var CodexAcpClient = class {
+@@ -28664,7 +28669,9 @@ var CodexAcpClient = class {
        input,
        approvalPolicy: agentMode.approvalPolicy,
        approvalsReviewer: agentMode.approvalsReviewer,
@@ -81,7 +81,7 @@ index b8cc7b7a06d97525dcf23511a284980ae6214ea6..bb444a9e1b791c1d866e39c3a12e3f49
        summary: disableSummary ? "none" : "auto",
        effort,
        model: modelId.model,
-@@ -28956,10 +28963,57 @@ function readAdditionalDirectories(cwd, additionalDirectories, meta3) {
+@@ -29073,10 +29080,57 @@ function readAdditionalDirectories(cwd, additionalDirectories, meta3) {
    }
    return directories;
  }
