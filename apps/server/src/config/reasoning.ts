@@ -11,8 +11,9 @@ export const CODEX_REASONING_EFFORTS: readonly CodexReasoningEffort[] = [
   "ultra",
 ];
 
-// Keep this table aligned with the catalog bundled in @openai/codex 0.144.3.
+// Keep this table aligned with the effective Codex model catalog.
 const CODEX_MODEL_REASONING_EFFORTS = {
+  "gpt-6.1-sol": ["low", "medium", "high", "xhigh", "max", "ultra"],
   "gpt-5.6-sol": ["low", "medium", "high", "xhigh", "max", "ultra"],
   "gpt-5.6-terra": ["low", "medium", "high", "xhigh", "max", "ultra"],
   "gpt-5.6-luna": ["low", "medium", "high", "xhigh", "max"],

@@ -19,6 +19,12 @@ export function extractAbsolutePath(text: string): string | undefined {
 }
 
 export function parseNaturalFileRequest(text: string): ParsedCommand | undefined {
+  // A longer message can mention both a transfer and an HTTP endpoint without
+  // asking us to send a local file. Explicit /file commands still work there.
+  if (/\r|\n/.test(text)) {
+    return undefined;
+  }
+
   const hasSendIntent = /(发|发送|传|传给|send)\s*/i.test(text);
   if (!hasSendIntent) {
     return undefined;

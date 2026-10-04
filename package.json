@@ -11,6 +11,7 @@
     "build": "tsc -p apps/server/tsconfig.json",
     "build:watch": "tsc -p apps/server/tsconfig.json --watch",
     "check": "tsc -p apps/server/tsconfig.json --noEmit",
+    "test:wxbot": "node --test tests/wxbot-regression.test.mjs",
     "setup": "node dist/apps/server/setup.js",
     "wechat:setup": "node dist/apps/server/setup.js",
     "accounts": "node dist/apps/server/accounts.js",

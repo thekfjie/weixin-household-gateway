@@ -14,6 +14,7 @@ import {
   ILinkUploadMediaType,
   ILinkUploadMediaTypeValue,
 } from "./protocol.js";
+import { splitWechatText } from "./text-chunks.js";
 
 const CDN_UPLOAD_RETRIES = 3;
 const CDN_DOWNLOAD_TIMEOUT_MS = 60_000;
@@ -305,28 +306,38 @@ export async function sendTextMessage(params: {
   contextToken: string;
   text: string;
 }): Promise<string> {
-  const clientId = createClientId();
-  const request: ILinkSendMessageRequest = {
-    msg: {
-      from_user_id: "",
-      to_user_id: params.toUserId,
-      client_id: clientId,
-      message_type: ILinkMessageType.BOT,
-      message_state: ILinkMessageState.FINISH,
-      context_token: params.contextToken,
-      item_list: [
-        {
-          type: ILinkMessageItemType.TEXT,
-          text_item: {
-            text: params.text,
-          },
-        },
-      ],
-    },
-  };
+  let lastClientId = "";
+  const chunks = splitWechatText(params.text);
 
-  assertSendMessageSucceeded(await params.client.sendMessage(request), clientId);
-  return clientId;
+  for (const [index, text] of chunks.entries()) {
+    const clientId = createClientId();
+    const request: ILinkSendMessageRequest = {
+      msg: {
+        from_user_id: "",
+        to_user_id: params.toUserId,
+        client_id: clientId,
+        message_type: ILinkMessageType.BOT,
+        message_state: ILinkMessageState.FINISH,
+        context_token: params.contextToken,
+        item_list: [
+          {
+            type: ILinkMessageItemType.TEXT,
+            text_item: {
+              text,
+            },
+          },
+        ],
+      },
+    };
+
+    assertSendMessageSucceeded(await params.client.sendMessage(request), clientId);
+    lastClientId = clientId;
+    if (index < chunks.length - 1) {
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+  }
+
+  return lastClientId;
 }
 
 export async function sendUploadedFileMessage(params: {
