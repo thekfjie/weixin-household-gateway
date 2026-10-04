@@ -1,0 +1,35 @@
+{
+  "date": "2026-10-04T10:36:17.233988+00:00",
+  "deployed_sha": "fbaf0ad7673878e5094bc38d20003f8149d33d61",
+  "application_directory": "/opt/weixin-household-gateway",
+  "original_release_directory_removed": true,
+  "private_release_backup": "/var/backups/weixin-household-migration-20261004T101522Z/server/release-layout",
+  "root_artifacts_backup": "/var/backups/weixin-household-migration-20261004T101522Z/server/root-artifacts",
+  "before": {
+    "health": {
+      "ok": true,
+      "startedAt": "2026-09-30T03:52:02.512Z"
+    },
+    "ready": {
+      "ok": true,
+      "accounts": 2,
+      "databaseFile": "/var/lib/weixin-household-gateway/weixin-household-gateway.sqlite"
+    }
+  },
+  "after": {
+    "health": {
+      "ok": true,
+      "service": "weixin-household-gateway",
+      "timezone": "Asia/Shanghai",
+      "startedAt": "2026-10-04T10:35:23.507Z"
+    },
+    "ready": {
+      "ok": true,
+      "databaseFile": "/var/lib/weixin-household-gateway/weixin-household-gateway.sqlite",
+      "accounts": 2
+    }
+  },
+  "systemd": "MainPID=1337376\nEnvironmentFiles=/opt/weixin-household-gateway/.env (ignore_errors=no)\nWorkingDirectory=/opt/weixin-household-gateway\nActiveState=active\nSubState=running\n",
+  "rollback_required": false,
+  "empty_directory_removal": "completed with sudo; no runtime error"
+}

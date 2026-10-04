@@ -11,7 +11,7 @@
   node_modules/  当前锁定依赖，Git 忽略
   docs/          当前运维与历史文档
   legacy/        旧 ACP 只读参考
-  data/runtime   原 release 内的本地目录，若存在则保留，Git 忽略
+  data/、runtime/ 原 release 内的本地目录，若存在则保留，Git 忽略
 /var/lib/weixin-household-gateway/
   weixin-household-gateway.sqlite
   codex-home/

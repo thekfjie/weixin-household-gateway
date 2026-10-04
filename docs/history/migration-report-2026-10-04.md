@@ -131,20 +131,22 @@ weixin-household-gateway/
 | 当前和历史 Linux shell 语法 | 已记录原源码 | 全部通过 |
 | 旧 bundle 完整恢复和 refs | 原 mirror 已验证 | 两份独立恢复通过 |
 | 78 文件快照字节核对 | 原 SHA/清单已保存 | 全通过 |
-| Markdown 相对链接 | 原资料保存 | 47 个路径通过 |
-| systemd/当前依赖路径/HTTP health/ready | active，HTTP 200，2 个账号 | 待服务器切换验证 |
-| 凭据和 runtime 不进提交 | 原历史扫描通过 | staged 导出扫描与路径排除通过；推送前全 refs 再核对 |
-| `weixin-mini-program-login` | 只读指纹已保存 | 待最终指纹核对 |
+| Markdown 相对链接 | 原资料保存 | 50 个路径通过 |
+| systemd/当前依赖路径/HTTP health/ready | active，HTTP 200，2 个账号 | 根目录运行，HTTP 200，仍为 2 个账号 |
+| 凭据和 runtime 不进提交 | 原历史扫描通过 | staged、全 refs、commit messages 扫描全部通过 |
+| `weixin-mini-program-login` | 只读指纹已保存 | HEAD、工作区状态 hash、目录时间全部不变 |
 
 原公开版本没有 tests 脚本，因此没有虚构它通过单元测试。旧 ACP 不作为活动 runtime 重新安装或修复；Windows 脚本只保留并检查路径，没有 Windows 环境实跑。原 CDN 实验记录的是第三方上传 500 问题，本次不以一次健康检查声称它已修复。没有发送微信测试消息或调用模型生成任务。
 
-迁移前已观察到的失败项：安装、类型检查、构建与六项回归测试没有失败；有历史 CDN 上传失败实验记录，未在本次重新触发。迁移新增失败：代码安装、类型检查、构建及测试未发现新增失败；服务器切换另在最终阶段核对。
+迁移前已观察到的失败项：安装、类型检查、构建与六项回归测试没有失败；有历史 CDN 上传失败实验记录，未在本次重新触发。迁移新增失败：未发现新的安装、类型检查、构建、测试或运行健康失败。清理空 release 顶层目录时遇到权限限制，使用 sudo 完成移除，没有影响运行服务。
 
 ## 旧仓处理与范围
 
-- 旧仓 README 顶部迁移通知：待主仓验证后执行。
-- 旧仓 Archive：待主仓验证后执行；保留其原 private 可见性，不删除仓库。
+- 旧仓 README 顶部迁移通知：已添加并远端核对。通知提交为 `f8a6b13826e739015f41e3b898887ca9e043ca2b`，原正文保留。
+- 旧仓 Archive：已完成，GitHub API 确认 `archived=true`；保留原 private 可见性，没有删除仓库。
 - 最终 canonical repository：`thekfjie/weixin-household-gateway`。
-- `weixin-mini-program-login` 没有纳入 fetch、merge、push、部署或配置操作；只读 HEAD/status/目录指纹在最终阶段复核。
+- `weixin-mini-program-login` 没有纳入 fetch、merge、push、部署或配置操作；只读 HEAD/status/目录指纹已经复核，全部不变。
 
 服务器收敛结果与后续命令见 [server-deployment.md](../server-deployment.md)。
+
+最终证据：[机器验证摘要](migration-validation.json)、[服务器切换记录](server-cutover.json)、[旧仓最终状态](old-repository-final.json)。Gateway 远端原始两个 bundle 的实际下载字节与原 SHA256 均一致；历史 branch/tag 远端 SHA 已核对。服务于 2026-10-04T10:35:23Z 重新启动，当前工作目录与唯一 EnvironmentFile 都指向主目录，原 release env 已退役到私有备份。运行持久数据位置未迁移。

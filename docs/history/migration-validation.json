@@ -1,0 +1,76 @@
+{
+  "date_utc": "2026-10-04T10:39:23.409464+00:00",
+  "baseline_remote": [
+    {
+      "step": "install",
+      "exit_code": 0
+    },
+    {
+      "step": "check",
+      "exit_code": 0
+    },
+    {
+      "step": "build",
+      "exit_code": 0
+    }
+  ],
+  "baseline_server": [
+    {
+      "step": "install",
+      "exit_code": 0
+    },
+    {
+      "step": "check",
+      "exit_code": 0
+    },
+    {
+      "step": "build",
+      "exit_code": 0
+    },
+    {
+      "step": "tests",
+      "exit_code": 0
+    }
+  ],
+  "merged_tree": {
+    "checks": [
+      {
+        "step": "check",
+        "exit_code": 0
+      },
+      {
+        "step": "build",
+        "exit_code": 0
+      },
+      {
+        "step": "tests",
+        "exit_code": 0
+      }
+    ],
+    "relative_links": 50,
+    "credential_runtime_exclusion": true,
+    "final_tree_gitleaks": 0
+  },
+  "historical_snapshot_files": 78,
+  "bundles_independently_restored": true,
+  "restored_refs_match_original": true,
+  "github_bundle_sha256_verified": true,
+  "all_refs_gitleaks_passed": true,
+  "commit_messages_gitleaks_passed": true,
+  "server_health_ok": true,
+  "server_ready_ok": true,
+  "wechat_accounts_preserved": 2,
+  "server_runtime": "codex-cli 0.153.4",
+  "active_application_directory": "/opt/weixin-household-gateway",
+  "mini_program_login_unchanged": true,
+  "old_repository_archived": true,
+  "old_repository_notice_head": "f8a6b13826e739015f41e3b898887ca9e043ca2b",
+  "new_build_test_failures": 0,
+  "not_executed": [
+    "real WeChat send/receive end-to-end test",
+    "model API generation",
+    "legacy runtime revival",
+    "Windows runtime test",
+    "upstream CDN upload experiment"
+  ]
+}
