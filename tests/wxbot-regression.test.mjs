@@ -7,6 +7,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { InboundTaskQueue } from "../dist/apps/server/transport/ilink/inbound-task-queue.js";
+import { parseBuiltInCommand } from "../dist/apps/server/commands/parse-command.js";
+import { parseNaturalFileRequest } from "../dist/apps/server/commands/file-actions.js";
 import { sendTextMessage } from "../dist/apps/server/transport/ilink/media.js";
 import {
   WECHAT_TEXT_MAX_CHARS,
@@ -15,6 +17,18 @@ import {
 } from "../dist/apps/server/transport/ilink/text-chunks.js";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+test("multi-line technical requests are not mistaken for file sends", () => {
+  const request = [
+    "请评估 Remote Router 方案。",
+    "将请求转发到上游。",
+    "HTTP /responses",
+  ].join("\n");
+  assert.equal(parseBuiltInCommand(request), undefined);
+  assert.equal(parseNaturalFileRequest(request), undefined);
+  assert.equal(parseNaturalFileRequest("把 /tmp/report.pdf 发给我")?.args[0], "/tmp/report.pdf");
+  assert.equal(parseBuiltInCommand("/file /tmp/report.pdf")?.name, "/file");
+});
 
 test("long WeChat text is split without truncating content", () => {
   const text = Array.from(
