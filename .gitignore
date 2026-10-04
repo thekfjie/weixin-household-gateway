@@ -10,3 +10,13 @@ coverage/
 .corepack/
 .pnpm-home/
 .install-state
+
+# Local credentials and runtime state, including dated .env backups.
+.env.*
+!.env.example
+**/auth.json
+**/.acp-session-map.json
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.db

@@ -8,6 +8,8 @@
 - `admin` 拥有持久 ACP 会话，适合运维、代码、文件和长任务。
 - `family` 默认走更安全的路径：普通聊天优先直连 API，复杂文件任务再升级到非持久 ACP，并受更严格的权限策略约束。
 
+唯一维护入口是本仓库的 `main`。当前代码位于根目录；旧 ACP 实现见 [历史实现](#historical-acp-implementation)。
+
 ## 项目能力
 
 - 多微信账号接入，支持 `admin` / `family` 角色分权。
@@ -127,9 +129,7 @@ flowchart LR
 | `family-acp` | 关 | 开 | 默认不发 ACP 过程；开 `/output process on` 后最多 4 条且不超过前 `N-1` 条，至少间隔 8 秒，只发可见文本块，不发工具进度 |
 | `family-api` | 早发默认关 | 开 | 开 `/output family-api-stream on` 后最多提前发 2 条且不超过前 `N-1` 条，至少 60 字，至少间隔 2.5 秒，只在强边界切 |
 
-`family-api` 未开启早发时，会等 API 完整返回后再发最终回答。最终回答默认作为
-一条完整消息发送，不再做普通长度分段；如果前面已发送了 9 条过程消息，默认配置
-下第 10 条就是最终回答。
+`family-api` 未开启早发时，会等 API 完整返回后再发最终回答。最终回答保持为最后一组消息；当文本超过 iLink 单条限制时，发送层会按字符和 UTF-8 字节限制拆分，完整保留文本。逻辑消息预算不等于底层文本分片数量。
 
 `family-api` 维护独立的 API 聊天轨道，不把 ACP 工具任务的长过程直接混入 API
 上下文；这条轨道约有 100k 字符预算，超出后优先按完整旧轮次裁剪，尽量保持
@@ -173,6 +173,8 @@ apps/server/src/
 
 docs/           运维与开发文档
 infra/          Linux 安装/卸载脚本和 systemd 集成
+legacy/agent-acp/  旧 ACP 最终源码与设计文档（历史参考）
+docs/history/     迁移证据、路径表、原始 Git bundle
 ```
 
 常见部署目录：
@@ -222,9 +224,12 @@ Linux 部署时，安装器会处理 Codex CLI、`bubblewrap`/`bwrap` 兼容和 
 
 ```bash
 corepack enable
-pnpm install
-pnpm build
+pnpm install --frozen-lockfile
 pnpm check
+pnpm build
+pnpm test:wxbot
+cp .env.example .env
+# 按 .env.example 填写运行配置，再启动
 pnpm start
 ```
 
@@ -250,8 +255,11 @@ sudo systemctl status weixin-household-gateway
 journalctl -u weixin-household-gateway -f
 
 cd /opt/weixin-household-gateway
-git pull
-corepack pnpm build
+git pull --ff-only origin main
+pnpm install --frozen-lockfile
+pnpm check
+pnpm build
+pnpm test:wxbot
 node dist/apps/server/configure-codex.js --apply
 sudo systemctl restart weixin-household-gateway
 ```
@@ -277,6 +285,16 @@ bash infra/scripts/linux/uninstall.sh --yes
 - [提示词与上下文策略](docs/prompting.md)
 - [微信命令](docs/commands.md)
 - [Windows 本地测试](docs/windows-local-test.md)
+
+## Historical ACP implementation
+
+旧 `weixin-household-agent-acp` 已停止独立维护。它是本项目的早期实现：旧仓后期已使用 Gateway 产品名，新仓继续整理和发展同一套代码。历史源码、原 README、架构、提示词和部署文件位于 [legacy/agent-acp/](legacy/agent-acp/README.md)，当前运行请使用本仓根目录。
+
+- [项目关系与迁移记录](docs/history/agent-acp-migration.md)
+- [完整迁移报告](docs/history/migration-report-2026-10-04.md)
+- [服务器部署与更新](docs/server-deployment.md)
+
+旧 Git 历史原样保留在 `archive/agent-acp` 分支及 `archive/agent-acp-final-20260503` 标签；原始 bundle 和恢复命令见迁移记录。微信小程序登录/runtime 研究属于独立项目，本次没有合并或修改。
 
 ## 友链/社区
 

@@ -1,0 +1,78 @@
+113d0a58816e5bb6185f5ba83cebc4025cdc104f 2026-04-28T18:50:38+08:00  Initial commit
+7b56e38561ae4e97ba6281cb9e86d2aa2d17f01a 2026-04-28T20:35:11+08:00 113d0a58816e5bb6185f5ba83cebc4025cdc104f chore: initialize household agent scaffold
+7ae8d2cd7d653fd0cc854af553471a64413cbd38 2026-04-28T23:55:32+08:00 7b56e38561ae4e97ba6281cb9e86d2aa2d17f01a fix: keep service process alive
+3a1b333b24b16b6a91e5f59079aa3b00bbcda3a6 2026-04-29T00:13:18+08:00 7ae8d2cd7d653fd0cc854af553471a64413cbd38 feat: add ilink login and polling skeleton
+620d120335cd6769751180619bbac9a1d7a41baa 2026-04-29T00:14:08+08:00 3a1b333b24b16b6a91e5f59079aa3b00bbcda3a6 docs: refresh README in Chinese
+7c5ca657685337bbab04d1f68e65bb26b5453f77 2026-04-29T01:25:18+08:00 620d120335cd6769751180619bbac9a1d7a41baa fix: render login QR from ilink URL
+96cd9968146ee33cde910d8d92b27ed4105cdadd 2026-04-29T01:38:48+08:00 7c5ca657685337bbab04d1f68e65bb26b5453f77 feat: add terminal setup flow
+f14a92c74cf17b1391a19c21f68de07f7407f215 2026-04-29T13:06:50+08:00 96cd9968146ee33cde910d8d92b27ed4105cdadd feat: add interactive linux installer
+87be4dcda2469be82ada7c62be59fd5c3d435556 2026-04-29T13:29:10+08:00 f14a92c74cf17b1391a19c21f68de07f7407f215 fix: harden linux installer scripts
+098afdcc04f3a20f3f815b9d9de211d5f79dbd7a 2026-04-29T13:41:22+08:00 87be4dcda2469be82ada7c62be59fd5c3d435556 fix: rename setup script to avoid pnpm collision
+7b0bf4a1080cc17f9dfb37424e70e4766799b7bb 2026-04-29T13:51:17+08:00 098afdcc04f3a20f3f815b9d9de211d5f79dbd7a fix: align setup command and default port
+5aab9bf19495639ec5e84136b8cbcce8aaae53b7 2026-04-29T14:21:58+08:00 7b0bf4a1080cc17f9dfb37424e70e4766799b7bb feat: simplify one-command deployment
+acd9670aa0824d1df1af1ee06572e7f9bb3b8cea 2026-04-29T14:35:54+08:00 5aab9bf19495639ec5e84136b8cbcce8aaae53b7 fix: restore linux install state on uninstall
+3d8903d83838930c24ef687b8362bc42fa3d9694 2026-04-29T22:50:35+08:00 acd9670aa0824d1df1af1ee06572e7f9bb3b8cea docs: add server install steps
+15c7618ce248eab3bbb03a85658a41fe233cf2b3 2026-04-29T23:14:19+08:00 3d8903d83838930c24ef687b8362bc42fa3d9694 feat: route wechat replies through codex cli
+5d29a52bb5e12af0ef26b65067df3663f9088b8d 2026-04-29T23:27:45+08:00 15c7618ce248eab3bbb03a85658a41fe233cf2b3 fix: strip codex cli transcript noise
+cc3cc7da15e7620bceab4face9a6f5dcc5c0bb14 2026-04-29T23:39:46+08:00 5d29a52bb5e12af0ef26b65067df3663f9088b8d feat: add wechat file send cli
+2a40f274a6b4aaddf2a1fba76d56d6d25dd192b7 2026-04-29T23:51:11+08:00 cc3cc7da15e7620bceab4face9a6f5dcc5c0bb14 fix: restore cdn upload and typing indicator
+9e9ded8125939eb56c7e81de3243fbd1505fbdab 2026-04-30T00:07:36+08:00 2a40f274a6b4aaddf2a1fba76d56d6d25dd192b7 feat: add admin wechat file command
+da525b40151adf7212d1cca7f819223d93a75d57 2026-04-30T00:25:50+08:00 9e9ded8125939eb56c7e81de3243fbd1505fbdab feat: harden family runtime and ops tooling
+1d8353e39b4c38337b8af6c1263491bc71aa7150 2026-04-30T13:01:58+08:00 da525b40151adf7212d1cca7f819223d93a75d57 feat: add codex cli configuration helper
+6d6047487db90cff3e28711f1027621620d974ad 2026-04-30T13:04:10+08:00 1d8353e39b4c38337b8af6c1263491bc71aa7150 feat: add admin wechat ops commands
+130a2f221a87daf47d26d5ecb3d6428230790e7a 2026-04-30T13:05:47+08:00 6d6047487db90cff3e28711f1027621620d974ad feat: expand doctor self checks
+0b633e40cf768a6715337097d62ca26f23ce62ed 2026-04-30T18:37:10+08:00 130a2f221a87daf47d26d5ecb3d6428230790e7a feat: add ACP codex backend
+52fc3c8efb8a82c3438ea0ea57fd63b9928d29a1 2026-04-30T18:51:51+08:00 0b633e40cf768a6715337097d62ca26f23ce62ed chore: bundle codex acp adapter
+3111cf949b726dcc3f175dbf1f3088d4e978ac81 2026-04-30T19:23:50+08:00 52fc3c8efb8a82c3438ea0ea57fd63b9928d29a1 fix: check codex acp adapter with help
+d88dfe0d4ccd930c63cf61550322c2617ee2f3ad 2026-04-30T19:31:48+08:00 3111cf949b726dcc3f175dbf1f3088d4e978ac81 fix: authenticate codex acp backend
+849a9d260afc10c2699570d9bc0e0aabc1e1bad3 2026-04-30T19:49:23+08:00 d88dfe0d4ccd930c63cf61550322c2617ee2f3ad fix: require noninteractive codex acp auth
+b92032428a8defcc95390faebe2ca04fcec51c5c 2026-04-30T19:57:15+08:00 849a9d260afc10c2699570d9bc0e0aabc1e1bad3 fix: allow codex acp agent auth state
+c7b70fa36e43276ae69cb04883b120036092f99a 2026-04-30T20:35:49+08:00 b92032428a8defcc95390faebe2ca04fcec51c5c feat: add acp session doctor check
+7b74156afd2ef664c5097225f46bcaba22f7902f 2026-04-30T21:01:37+08:00 c7b70fa36e43276ae69cb04883b120036092f99a docs: clarify codex user and runtime flow
+2d0a82f35300d9395328b0f1ef824aeb7a901488 2026-04-30T21:19:16+08:00 7b74156afd2ef664c5097225f46bcaba22f7902f feat: improve family ops and file workflow
+0e3d2ec4cc026a20436a95ba99c83b4ed893cec0 2026-04-30T23:46:01+08:00 2d0a82f35300d9395328b0f1ef824aeb7a901488 feat: add thinking notice and safety ops
+c49eed778ee193cecc678a4465de38b4852665c2 2026-04-30T23:53:31+08:00 0e3d2ec4cc026a20436a95ba99c83b4ed893cec0 feat: complete ops plan and product checklist
+984d640b83d66f42f5d388a5588c1d936beef60c 2026-05-01T00:03:15+08:00 c49eed778ee193cecc678a4465de38b4852665c2 feat: persist acp sessions and simplify docs
+3b2ab41d7fe160c48f39f6da182a2616fa4f12fa 2026-05-01T00:47:39+08:00 984d640b83d66f42f5d388a5588c1d936beef60c feat: reduce repeated acp prompt bootstrap
+973dd2120bc682fecf67dee2a67341639c346153 2026-05-01T01:12:47+08:00 3b2ab41d7fe160c48f39f6da182a2616fa4f12fa feat: default to acp and add office workspace
+e8869cdce69101cdf9a05ff47a43344478e26275 2026-05-01T12:42:04+08:00 973dd2120bc682fecf67dee2a67341639c346153 fix: clean up acp subprocess handles
+0379605480fc606af56ed51ba9611abb419b92f9 2026-05-01T13:00:15+08:00 e8869cdce69101cdf9a05ff47a43344478e26275 feat: download inbound media and defer attachment replies
+27d31be6fcd8a895fcca39a0baed7f1dc3bb0309 2026-05-02T13:48:28+08:00 0379605480fc606af56ed51ba9611abb419b92f9 Improve ACP session handling and add session mode switching
+f7bc76ea6cf5f885fdd36c4bfea33e2808c04b26 2026-05-02T17:59:42+08:00 27d31be6fcd8a895fcca39a0baed7f1dc3bb0309 Improve family file workflow and publish prompt docs
+a0a14a04c7d8844da124c39136c1147b51f1da04 2026-05-02T23:01:43+08:00 f7bc76ea6cf5f885fdd36c4bfea33e2808c04b26 Rename gateway and improve installer and session flow
+4aefe50f91f19d3a1167cc3ffca35e3162a3b475 2026-05-02T23:13:22+08:00 a0a14a04c7d8844da124c39136c1147b51f1da04 Refine session rotation hints and counters
+92d610f59f0ad54046f4e87c5823b85b822ed6a7 2026-05-02T23:58:16+08:00 4aefe50f91f19d3a1167cc3ffca35e3162a3b475 Rename project to weixin-household-gateway
+fd856b69cecfc908f413455cf13bab8bdbae587e 2026-05-03T00:07:41+08:00 92d610f59f0ad54046f4e87c5823b85b822ed6a7 Improve cross-day conversation carryover
+297ebd18731cdad52a09eecd8ccb49e618cbfd1e 2026-05-03T00:17:03+08:00 fd856b69cecfc908f413455cf13bab8bdbae587e Add memory inspection command
+33436cf3ab5e545e855f92fc6a3368b753995b37 2026-05-03T00:27:22+08:00 297ebd18731cdad52a09eecd8ccb49e618cbfd1e Improve previous-session references and docs
+cde20b06b2cd3dd0477ba1e18b546448149ab037 2026-05-03T00:45:42+08:00 33436cf3ab5e545e855f92fc6a3368b753995b37 Add install-time model selection and lightweight summaries
+c241d7c68161f83c848356fd5b0a103718a3771d 2026-05-03T00:57:57+08:00 cde20b06b2cd3dd0477ba1e18b546448149ab037 Rewrite docs and refine history references
+93ffd8edbe0caf977356516ac94c9657b254ffba 2026-05-03T01:07:36+08:00 c241d7c68161f83c848356fd5b0a103718a3771d Rewrite architecture docs
+eaef1f6bd891515f62faabec01837af8ca6a71d5 2026-05-03T02:21:26+08:00 93ffd8edbe0caf977356516ac94c9657b254ffba Improve history snapshot readability
+05ddd108301a78d8be58cd7582d416eb38c4ba03 2026-05-03T02:34:16+08:00 eaef1f6bd891515f62faabec01837af8ca6a71d5 Fix bootstrap repository URLs
+4c0c41e21372fd753101c52e37790cd1c7766003 2026-05-03T02:50:08+08:00 05ddd108301a78d8be58cd7582d416eb38c4ba03 Make installer interactive by default
+32a9081b5626eaf72762c6536cb831cddf47565a 2026-05-03T15:27:13+08:00 4c0c41e21372fd753101c52e37790cd1c7766003 Tighten Linux install and Codex auth flow
+1929b5120b5655c26df584dc47a7abc390c11aa2 2026-05-03T16:03:14+08:00 32a9081b5626eaf72762c6536cb831cddf47565a Move Linux user tools out of app dir
+956eff8c74aefd94938091aa1575162ed9086f6e 2026-05-03T16:35:36+08:00 1929b5120b5655c26df584dc47a7abc390c11aa2 Restore README content and tighten install notes
+6422d50afa709c8f7e58062c95ee5e285a4d0c8a 2026-05-03T16:40:03+08:00 956eff8c74aefd94938091aa1575162ed9086f6e Fix bootstrap stdin handoff for curl pipe installs
+b43ebb4b3192b59e0fdabb6cbd0e8518202293d2 2026-05-03T16:51:59+08:00 6422d50afa709c8f7e58062c95ee5e285a4d0c8a Polish Codex auth wording and provider defaults
+e9d480ac26d3224080d4110e68dc9a82d56a1f71 2026-05-03T17:00:59+08:00 b43ebb4b3192b59e0fdabb6cbd0e8518202293d2 Fix Codex error verification hint
+487da954f3ecb57cb9da87c61b3fcd22685d07e4 2026-05-03T17:13:21+08:00 e9d480ac26d3224080d4110e68dc9a82d56a1f71 Fix Codex compatible base_url configuration
+c1bc650b99976930f0d18fe43039e2929b0281fa 2026-05-03T17:23:53+08:00 487da954f3ecb57cb9da87c61b3fcd22685d07e4 Align Codex home and command resolution
+836bb11f3b619168dbd7273c0b32836e370e2733 2026-05-03T17:33:17+08:00 c1bc650b99976930f0d18fe43039e2929b0281fa Fix Codex home resolution in configure script
+9339f33832edf08996162f88c24335d5675affff 2026-05-03T17:52:45+08:00 836bb11f3b619168dbd7273c0b32836e370e2733 Fix Codex auth file generation for runtime build
+3cc91d5e311b9b7ba1694c5c3e1fb4031e28712b 2026-05-03T18:02:57+08:00 9339f33832edf08996162f88c24335d5675affff Clarify Codex paths and runtime expectations
+bfdb6be181bf46ae137efc964f82626f6ad0aa06 2026-05-03T18:13:38+08:00 3cc91d5e311b9b7ba1694c5c3e1fb4031e28712b Default Codex model to GPT-5.5 with high reasoning
+278bbc2798f9dbf7acedc1310c376be16a1b9863 2026-05-03T19:50:37+08:00 bfdb6be181bf46ae137efc964f82626f6ad0aa06 Add admin Codex role tuning command
+31cb9a3b5dc87bd106d1853ed345399c608191de 2026-05-03T20:40:00+08:00 278bbc2798f9dbf7acedc1310c376be16a1b9863 Allow ACP attachment workspaces
+3baec24654518a845d7abd5a9e84e94f8b496479 2026-05-03T20:51:31+08:00 31cb9a3b5dc87bd106d1853ed345399c608191de Acknowledge attachments before processing
+587d108a547dc033c6d04df5785fa1758ab53606 2026-05-03T21:06:25+08:00 3baec24654518a845d7abd5a9e84e94f8b496479 Relax family ACP workspace execution
+350d4562cc62fb81ff212bc30b24830a97e1a5b9 2026-05-03T21:16:00+08:00 587d108a547dc033c6d04df5785fa1758ab53606 Shorten family workspace prompt
+376667731cd88bceb7e1aa651431b3cd1002bd20 2026-05-03T21:55:38+08:00 350d4562cc62fb81ff212bc30b24830a97e1a5b9 refactor: 重构项目代码，修复管理员ACP权限控制，拆分worker.ts核心模块
+a5ba7ab7e6b8924d1ab6d568ebafebab1f61d228 2026-05-03T22:10:58+08:00 376667731cd88bceb7e1aa651431b3cd1002bd20 Fix admin session mode reset and error hint
+eabfa74047e21ca67ef8e8d4e71956d45b741896 2026-05-03T22:38:34+08:00 a5ba7ab7e6b8924d1ab6d568ebafebab1f61d228 Fix clear session reset and family error hints
+262f0a5336f53f2d2446c60902c60333b572b303 2026-05-03T23:10:46+08:00 eabfa74047e21ca67ef8e8d4e71956d45b741896 Improve Codex error hints and family workspace flow
+061232e921440c125b90cf475ab91e4ef4761b0e 2026-05-03T23:38:12+08:00 262f0a5336f53f2d2446c60902c60333b572b303 Align family file sending with session workspace
+f0b74818c5c538a0df23bf17d09bbc4ea20aa0a5 2026-05-03T23:48:58+08:00 061232e921440c125b90cf475ab91e4ef4761b0e Add family small-model permission review
+3356e740c633aeed5d9944eadd8bc94dcc0bf7c8 2026-05-04T00:03:16+08:00 f0b74818c5c538a0df23bf17d09bbc4ea20aa0a5 Default family permission review to codex-auto-review
+73d3e48ef73babbf0d311dc7de7a5a0d81f8799a 2026-05-04T00:07:07+08:00 3356e740c633aeed5d9944eadd8bc94dcc0bf7c8 Tighten family permission messaging and review trigger

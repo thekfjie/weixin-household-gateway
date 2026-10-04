@@ -3,3 +3,6 @@
 *.ts text eol=lf
 *.js text eol=lf
 *.md text eol=lf
+
+# Git bundles must retain their exact bytes on all platforms.
+*.bundle -text

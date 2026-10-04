@@ -1,0 +1,492 @@
+{
+  "source_sha": "73d3e48ef73babbf0d311dc7de7a5a0d81f8799a",
+  "files": [
+    {
+      "original_path": ".env.example",
+      "path": "legacy/agent-acp/.env.example",
+      "sha256": "0c6c3095cb4842212cb82932095536462e2466898950742daca7aeb6d579b949",
+      "git_blob": "23cbb4ad84ee9b3a9ae05caa42cf21f17fa2f893"
+    },
+    {
+      "original_path": ".gitattributes",
+      "path": "legacy/agent-acp/.gitattributes",
+      "sha256": "1d5d71dcc6ccd28ab46a335349ecc74742ca4b81f4fcad212f8d134f70f1f13e",
+      "git_blob": "dfdb8b771ce07609491fa2e83698969fd917a135"
+    },
+    {
+      "original_path": ".gitignore",
+      "path": "legacy/agent-acp/.gitignore",
+      "sha256": "f67f2aa93e6072051963b13f655691ed7c5699ad117dd94b9c96471137911780",
+      "git_blob": "a485b401b247dae10f02f1c2526126f63b29d78d"
+    },
+    {
+      "original_path": "LICENSE",
+      "path": "legacy/agent-acp/LICENSE",
+      "sha256": "ba9d4b4c5eca405325c7049580f83fa6d330877374f39c5dc38895d53ef8e9c6",
+      "git_blob": "6af1d8d1c20192a8542580df25075129cf35227a"
+    },
+    {
+      "original_path": "README.md",
+      "path": "legacy/agent-acp/README.md",
+      "sha256": "138aced68eaf541d758236358f09aed5db17a0f5219d500577d321b29997c2da",
+      "git_blob": "8c83aab7ac86e76f1c12848479f25eeb502c38ca"
+    },
+    {
+      "original_path": "apps/server/src/accounts.ts",
+      "path": "legacy/agent-acp/apps/server/src/accounts.ts",
+      "sha256": "2a16c5aee6f15f97dccadcbd3d462b6d0fbc52e798f2138fab91e5ae7dd35925",
+      "git_blob": "6c30dc55392d9433ce82e7088ddd70d6e8ec56b5"
+    },
+    {
+      "original_path": "apps/server/src/backup.ts",
+      "path": "legacy/agent-acp/apps/server/src/backup.ts",
+      "sha256": "3b47663ab646c28766de0c2fddfca997beb55850238226591a13f9c2554eb593",
+      "git_blob": "c195edfbc0081306cf611aab79a37277dac0709d"
+    },
+    {
+      "original_path": "apps/server/src/codex-api-wrapper.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex-api-wrapper.ts",
+      "sha256": "6ad27ab64eb4a4ea79a0bc1b27de0ecd8ea9b96b178af25db39f074eb732e278",
+      "git_blob": "07231f4e8a9293a9e899a6e797ec9dc4993bfb2a"
+    },
+    {
+      "original_path": "apps/server/src/codex/acp-backend.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/acp-backend.ts",
+      "sha256": "a6ffbf996473bf73817c346f5bf331a8ebb67e982b0741b8a9e6ee4985c96d15",
+      "git_blob": "3325f8d89a071be98d0d60e7bf5f0f5d63990652"
+    },
+    {
+      "original_path": "apps/server/src/codex/acp-connection.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/acp-connection.ts",
+      "sha256": "9b0d3e6116626b80f53dd3365b155abe3dcca7c4dde6cf27af3ae2b7ef12cb36",
+      "git_blob": "aa6bb69fc09008a25d4ec84e473a7f26f6631b4b"
+    },
+    {
+      "original_path": "apps/server/src/codex/acp-response-collector.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/acp-response-collector.ts",
+      "sha256": "48ba297118c9ef7444c8541c1197ffb00661d877bd4f0227acb33feae806fe12",
+      "git_blob": "86f6a6edbb384d82d37e2dd06e567942fa060c52"
+    },
+    {
+      "original_path": "apps/server/src/codex/backend-types.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/backend-types.ts",
+      "sha256": "4e61ad643f5f3537ae91fa7e20b6b9abf57478499a122a26f5023fc96a9da588",
+      "git_blob": "b75974b23e131d55abdbca47cf6465bcda64e284"
+    },
+    {
+      "original_path": "apps/server/src/codex/build-command.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/build-command.ts",
+      "sha256": "b318c3deab93bf89f0204880a71c15187f7af152b5a953e9ddd0635d7d77fadf",
+      "git_blob": "5791ddb6f50b1d69ab6cbd83c10d6d8d2346f884"
+    },
+    {
+      "original_path": "apps/server/src/codex/cli-backend.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/cli-backend.ts",
+      "sha256": "f4b1642b6abf97f5b6942be34b827a86ced946f83fc77348b74df3f5575c1c59",
+      "git_blob": "73a2606cac4e302203f3015d0c6f022df53a1c4b"
+    },
+    {
+      "original_path": "apps/server/src/codex/factory.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/factory.ts",
+      "sha256": "9c36fb0b0252b4360e6c39cbc64755b24272c8458ef2b06cf9c74b566822f0a7",
+      "git_blob": "6aa192e8717527041d03cb354f41ef113eaf5e36"
+    },
+    {
+      "original_path": "apps/server/src/codex/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/index.ts",
+      "sha256": "f210fd3075c5757df480c0233fff8e10aae411e7d3144c6e357ecc952c93e4d5",
+      "git_blob": "6355e66cd82f138f7ba340813ba02c6af476d66d"
+    },
+    {
+      "original_path": "apps/server/src/codex/permission-review.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/permission-review.ts",
+      "sha256": "6abae4be763be32bab1f8e4a2fe5578a439a574f8586bf99a9ef746196221c70",
+      "git_blob": "2366a1c4a357d4a40021096265a27f34c998f94a"
+    },
+    {
+      "original_path": "apps/server/src/codex/run-codex.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/run-codex.ts",
+      "sha256": "bd75e00f03c65f3cc63479878734f362deb3231c5fe742a52421cca094363d32",
+      "git_blob": "2f3910544b0def34634d1e386afdb0fb4dbb90fa"
+    },
+    {
+      "original_path": "apps/server/src/codex/types.ts",
+      "path": "legacy/agent-acp/apps/server/src/codex/types.ts",
+      "sha256": "c59a7a569dd637fbff5034d33fee058304ed5d8265672cfd8ec6ada1254922c0",
+      "git_blob": "b7b8033c08e27948dc4d22b1d46a803fa18a7ac0"
+    },
+    {
+      "original_path": "apps/server/src/commands/file-actions.ts",
+      "path": "legacy/agent-acp/apps/server/src/commands/file-actions.ts",
+      "sha256": "4db456169dafe4acb8671bc848c98e9de8239adb33d937acf5b328351a29cf70",
+      "git_blob": "5ad9fa947a0475e6cf2136b3f14d6ecbea72346c"
+    },
+    {
+      "original_path": "apps/server/src/commands/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/commands/index.ts",
+      "sha256": "1b6898955d314be37db77a8760fc019e33034e321206ce3ca5285ca654c0e655",
+      "git_blob": "33f304bf988106a4664cc0c8767aba6c17d417cb"
+    },
+    {
+      "original_path": "apps/server/src/commands/parse-command.ts",
+      "path": "legacy/agent-acp/apps/server/src/commands/parse-command.ts",
+      "sha256": "ab3f252c3971398c233f9cbd2496e45d71a51bad382caf1b9d3f920608cf4e1b",
+      "git_blob": "a4a22dc34592ab3b82030ca64e6ef46697c6d5f7"
+    },
+    {
+      "original_path": "apps/server/src/commands/types.ts",
+      "path": "legacy/agent-acp/apps/server/src/commands/types.ts",
+      "sha256": "0af504f670ae95d1a6ff1829bd71a46d4e400b40f57cf950ce1b8ddb7cd4103f",
+      "git_blob": "6840647933c833ecd1dc33ae7a3cf40b9fe8f8be"
+    },
+    {
+      "original_path": "apps/server/src/config/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/config/index.ts",
+      "sha256": "cf9afd13c0ef1821691b7de9dbff1b0f2cea892c100cb93cd7225adb74f00332",
+      "git_blob": "6bc918f070f1636caf4198e12df65ce6e829cc32"
+    },
+    {
+      "original_path": "apps/server/src/config/load-config.ts",
+      "path": "legacy/agent-acp/apps/server/src/config/load-config.ts",
+      "sha256": "d74e440548fe551f8c0c68ec20c5854a3d6435a0e8f42bf790eacd306672435a",
+      "git_blob": "d9b318799baa729ea5bad5962568fdb8bf741291"
+    },
+    {
+      "original_path": "apps/server/src/config/types.ts",
+      "path": "legacy/agent-acp/apps/server/src/config/types.ts",
+      "sha256": "fdb4e5d92dfff6f424904730b9f14da2e64070708a07faa7d3f93f5023742cce",
+      "git_blob": "c3d4e07e09c7ed458483a2c4112e907bcdb20a85"
+    },
+    {
+      "original_path": "apps/server/src/configure-codex.ts",
+      "path": "legacy/agent-acp/apps/server/src/configure-codex.ts",
+      "sha256": "a6fd3b52c7b788bb12f1c6d00d2976aaf9d58c0b555d20197e00ba5d7a5724f5",
+      "git_blob": "5858ab5d543d1fc7aff3537902e7c5b77ed08094"
+    },
+    {
+      "original_path": "apps/server/src/doctor.ts",
+      "path": "legacy/agent-acp/apps/server/src/doctor.ts",
+      "sha256": "77009b945b3a5698d616e35fed37161b310f59faa8067697a81fb7ce30e60d31",
+      "git_blob": "97a8cb38a58e6b2c28d2dd13d6858eb400b3e0a7"
+    },
+    {
+      "original_path": "apps/server/src/files/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/files/index.ts",
+      "sha256": "d4c7f53cb14133f8f23b7ee19bbf02ab0004fb967997e01d2e5a0f9ff2a94f12",
+      "git_blob": "e6261cbedb4ed32d6543e2f5ca2d59ab10d70252"
+    },
+    {
+      "original_path": "apps/server/src/files/local-file.ts",
+      "path": "legacy/agent-acp/apps/server/src/files/local-file.ts",
+      "sha256": "5f901c01f150fd5851fa03d66952e4bc7756467547f8d79aee6ca6fc1bb79e28",
+      "git_blob": "a12ea8665899b80ff64aab5cdadfa2274e9cd56f"
+    },
+    {
+      "original_path": "apps/server/src/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/index.ts",
+      "sha256": "da100c92977dda8ea32d07a6122162a5174f0018b8009514a11082dbd9b47ec3",
+      "git_blob": "063fd2afc4d6af50b6af00d2ac3570e3c6bdef9b"
+    },
+    {
+      "original_path": "apps/server/src/policy/filter-output.ts",
+      "path": "legacy/agent-acp/apps/server/src/policy/filter-output.ts",
+      "sha256": "70b549d744daf38214a6bbc1716a28a98b372e73a7f98bb0a6464da5e36304fa",
+      "git_blob": "09e10fe3e8cd86a895e54ba2ab6e30d04cbc8b0e"
+    },
+    {
+      "original_path": "apps/server/src/policy/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/policy/index.ts",
+      "sha256": "17088cea77846d42d4b9230f2439b3844281f00c3f304f92b88200b671e7d549",
+      "git_blob": "3c71accaef3f5faf86158cdfd06814dba0b11da4"
+    },
+    {
+      "original_path": "apps/server/src/policy/redact-sensitive.ts",
+      "path": "legacy/agent-acp/apps/server/src/policy/redact-sensitive.ts",
+      "sha256": "8d6fba11790129804970638c55440fc0a547dc13d99ce6862610e8224e74f495",
+      "git_blob": "90ed1122c37db6d47e5ec565e5114d17fa20395e"
+    },
+    {
+      "original_path": "apps/server/src/router/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/router/index.ts",
+      "sha256": "8b4cb7ef58bed5cbd39d85d7d7de00a5663eb13f2bd5f667a7c14fcd104cc64b",
+      "git_blob": "66cb24854251ce720bb38b405f2b1b9a4daf2978"
+    },
+    {
+      "original_path": "apps/server/src/router/resolve-role.ts",
+      "path": "legacy/agent-acp/apps/server/src/router/resolve-role.ts",
+      "sha256": "6af165721f658f8aa00d59063e33cb0c0d1d50c2f08741827a164fe283059924",
+      "git_blob": "0c6d12cb00a21390198f47683ecf5279a61fb0ed"
+    },
+    {
+      "original_path": "apps/server/src/send-file.ts",
+      "path": "legacy/agent-acp/apps/server/src/send-file.ts",
+      "sha256": "37b402d1d70c8cf38d28554cd94f149ebe245c264db56a2439f75fbcd2f920b1",
+      "git_blob": "83075f118a0547182d21f510245a82ec129ac532"
+    },
+    {
+      "original_path": "apps/server/src/sessions/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/sessions/index.ts",
+      "sha256": "17818bb21925e078a8c8fdceaaf183b7a9b0ecf1b51097285c04f786adf65d11",
+      "git_blob": "2c9ca277f906051343910d848a464f4be045e1d5"
+    },
+    {
+      "original_path": "apps/server/src/sessions/memory.ts",
+      "path": "legacy/agent-acp/apps/server/src/sessions/memory.ts",
+      "sha256": "412588434e8546c2563e5a259d6122d830e8464d26c6968f9ecd8e5f734ac887",
+      "git_blob": "18f99f6a06044453df0c39d61cf88d49a6eb014f"
+    },
+    {
+      "original_path": "apps/server/src/sessions/prompt-context.ts",
+      "path": "legacy/agent-acp/apps/server/src/sessions/prompt-context.ts",
+      "sha256": "e513db2be9ea744321c01d0bcd61b4f421f2afda65e7811cdc9a3993123628bb",
+      "git_blob": "2b789ab7bdb2135f0abfc8b848d30a366a506946"
+    },
+    {
+      "original_path": "apps/server/src/sessions/rotation.ts",
+      "path": "legacy/agent-acp/apps/server/src/sessions/rotation.ts",
+      "sha256": "0b6b572932409965c01b676f65a31d20126586de405e8a64dd2da27c740ba947",
+      "git_blob": "9b216af0919c2a49d5af4cf40fce948016341f7e"
+    },
+    {
+      "original_path": "apps/server/src/sessions/service.ts",
+      "path": "legacy/agent-acp/apps/server/src/sessions/service.ts",
+      "sha256": "3313b730667b83be2ee5edae8edba1311dadd2ed41639c1655d5d76064138f75",
+      "git_blob": "a888b126958c731d66840d631f550d9ba9504419"
+    },
+    {
+      "original_path": "apps/server/src/sessions/time.ts",
+      "path": "legacy/agent-acp/apps/server/src/sessions/time.ts",
+      "sha256": "fa0099675e00011a8a573e72b05ca9db5e7ca2c94b1bf1cad5b67e7ec0fc12c2",
+      "git_blob": "bd6beb6b88a8c1420205b0e196907707ac2d3198"
+    },
+    {
+      "original_path": "apps/server/src/sessions/types.ts",
+      "path": "legacy/agent-acp/apps/server/src/sessions/types.ts",
+      "sha256": "a1e3c61875cb729e27391a30bc82036430a397e338ee85e5c73c4bc1577fdd60",
+      "git_blob": "b0277034470b19656d194b6df5b74ed8086f3c5c"
+    },
+    {
+      "original_path": "apps/server/src/setup.ts",
+      "path": "legacy/agent-acp/apps/server/src/setup.ts",
+      "sha256": "f1c4162352a2c003e59bc50c60047feaaf7799c60ec6ab09bf9cd0162ca76c31",
+      "git_blob": "6e7b03d6ce786dab6b5a49fedd48c0490c89f1ad"
+    },
+    {
+      "original_path": "apps/server/src/storage/database.ts",
+      "path": "legacy/agent-acp/apps/server/src/storage/database.ts",
+      "sha256": "d05b9a1845fab1d37c719d80f2bb8bd97fa115f9ee4e09f8f6d6a5a44c44578b",
+      "git_blob": "7a6dbf501418ef2cdc889eb90790159b575e0d4f"
+    },
+    {
+      "original_path": "apps/server/src/storage/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/storage/index.ts",
+      "sha256": "8c0aa288fec9790ed2b2ad34e26ca5e20ad0fabc5ed3c64dd0526e1f676a778e",
+      "git_blob": "56cb1d020fbcf30c22b16d3e78615a7752a878ac"
+    },
+    {
+      "original_path": "apps/server/src/storage/schema.ts",
+      "path": "legacy/agent-acp/apps/server/src/storage/schema.ts",
+      "sha256": "ad11106d97771244dd67ffe8ca4c7418a795a8b44dcca4e08be385effccbdee6",
+      "git_blob": "25131708201212cb31f2b2055ea566005f384dce"
+    },
+    {
+      "original_path": "apps/server/src/storage/types.ts",
+      "path": "legacy/agent-acp/apps/server/src/storage/types.ts",
+      "sha256": "4011d92a818598ce0103bf557293ae507d12ab6cf80db3063fdf0d5e86f81cd5",
+      "git_blob": "134aef4f25f7d7859c542d5e6f09c052c0896d08"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/api-client.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/api-client.ts",
+      "sha256": "d2a5a33e2108d06424ab2c2d0a91f372fcd9c9eb084624b2de9c69cd10f50b5f",
+      "git_blob": "4a82104198c9dbe9acdf031916ef5634bb1d1984"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/inbound.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/inbound.ts",
+      "sha256": "bfaed8300b8090fe625c92132cdfe50f765367ae1f5d70c10dfe7d1e2201cde7",
+      "git_blob": "d913fe2cb147fd276cd539547f9ec1aa492f5e65"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/index.ts",
+      "sha256": "51c4e063df1745886dd9bf4bf64119e32854d3f8f4680c73f51b542bbcbea3f4",
+      "git_blob": "ecf9d9d69416c8caead504d62856548d63738d14"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/media.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/media.ts",
+      "sha256": "848673fc057be5e088b43fa08420abdbff32d0a2a8b1828924ea0e794f24b4fe",
+      "git_blob": "0d9850faa51b3f3ea4c283335536f890ac45e9c1"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/protocol.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/protocol.ts",
+      "sha256": "351285326b2d76b81d3fe96ce8449b0082e7259b19ffa8c744856916fe778720",
+      "git_blob": "3f2d4db99be0b9296165a7f2ece7272c7fb013f5"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/qr-login.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/qr-login.ts",
+      "sha256": "287832e77f5027ec967339cdd9f8b090e6e56b27d83393fbd373d7e75efe00e5",
+      "git_blob": "c4a1bbc379a525302e7ab18cec9591a0ad01eaf3"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/reply.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/reply.ts",
+      "sha256": "1da23f5b6d5e020ada6da9ac01745b48cc7bdb2226714d35748eef57945d70bf",
+      "git_blob": "cde4de729002b4e7a2b9f3ddf7282e48e9a6a421"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/typing.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/typing.ts",
+      "sha256": "13ee84528f174cc6069cd879bca9537a000f0b354c434298c7c12a8a904859c3",
+      "git_blob": "b380f4c6e3383d9280f70fb546459b812ef4a748"
+    },
+    {
+      "original_path": "apps/server/src/transport/ilink/worker.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/ilink/worker.ts",
+      "sha256": "2ec0148190d020cc81fd5d51d59795f278fac2511f2cdc53c80fdc325fda906b",
+      "git_blob": "0bf1f4b72f6e66cfe2e601415e5495e85f87f22a"
+    },
+    {
+      "original_path": "apps/server/src/transport/index.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/index.ts",
+      "sha256": "648d2a68d176e7ea43a03a0436ac4ec006d941b9e908c0fe8ce81e817d8a7531",
+      "git_blob": "5fee28366b9e4713d596f4bdd7f81ac3103da4ce"
+    },
+    {
+      "original_path": "apps/server/src/transport/types.ts",
+      "path": "legacy/agent-acp/apps/server/src/transport/types.ts",
+      "sha256": "5c44f3d1d34a661269388fa7d888092cdfef026a41309f8d700c35d322af0e74",
+      "git_blob": "48d0a47c319df2d0d53f758b88277b97b76f7d8b"
+    },
+    {
+      "original_path": "apps/server/tsconfig.json",
+      "path": "legacy/agent-acp/apps/server/tsconfig.json",
+      "sha256": "590229344b98da5bba385e57f8422e6f2db777332b13b82c1cbfbe7e3c4c30c4",
+      "git_blob": "3ede3c46daf21691d45d83f99aaf1b9fa98d75c8"
+    },
+    {
+      "original_path": "docs/architecture-v0.md",
+      "path": "legacy/agent-acp/docs/architecture-v0.md",
+      "sha256": "761b9dc293c77eb82e790944f65164df91cf5aa5bdc628b96d59f55729a4b451",
+      "git_blob": "c805417f583cccb26af0d3b33636c75c607588f9"
+    },
+    {
+      "original_path": "docs/office-skills.md",
+      "path": "legacy/agent-acp/docs/office-skills.md",
+      "sha256": "48051972b8bf5210f10db5e946af7b64ff1a6a36c36e9e007ef24f3c9fe41736",
+      "git_blob": "8d293663df216d9fc91b5f80789412183f392ac0"
+    },
+    {
+      "original_path": "docs/product-checklist.md",
+      "path": "legacy/agent-acp/docs/product-checklist.md",
+      "sha256": "b61260ace691a121a14726217a6d7196189fb2d5b6c46e2dd3fb050edcb6b8d9",
+      "git_blob": "43e62cff5b45f80058b2aafcda20cc32267b5a50"
+    },
+    {
+      "original_path": "docs/prompts.md",
+      "path": "legacy/agent-acp/docs/prompts.md",
+      "sha256": "1bd85b8e58aaf0db4a1cf96196344f2d587e6fc701c373cf65bf4dee5a499fa2",
+      "git_blob": "d874ac2e6bc92f379e67b48c80c9357a58ec4511"
+    },
+    {
+      "original_path": "docs/roadmap.md",
+      "path": "legacy/agent-acp/docs/roadmap.md",
+      "sha256": "fc24d79386deac76d4f7075594c71b8586118bb010383f59f994dc0ec39d4e7a",
+      "git_blob": "ae9eaa4cb4fb33a379654c7b700935149fdcc7b4"
+    },
+    {
+      "original_path": "docs/windows-local-test.md",
+      "path": "legacy/agent-acp/docs/windows-local-test.md",
+      "sha256": "4b2ec04a3b728e4ba3c0d15112179649afa6fc23f62ace7dcfdafb95a8be2dbb",
+      "git_blob": "f3ada8809bb329564bbafb6e4255678839820220"
+    },
+    {
+      "original_path": "infra/scripts/linux/bootstrap.sh",
+      "path": "legacy/agent-acp/infra/scripts/linux/bootstrap.sh",
+      "sha256": "f1be2cf48557840b5652865a374b92996d0014abac2e4e1abe3b6b7ff1893eed",
+      "git_blob": "1c21a97a059ca1992afac40bbdb7ed422a2e5eb0"
+    },
+    {
+      "original_path": "infra/scripts/linux/install-office-skills.sh",
+      "path": "legacy/agent-acp/infra/scripts/linux/install-office-skills.sh",
+      "sha256": "d5550a386d1657d04994f216c46a1167ca2867b48dec4a372452491f6fcefd06",
+      "git_blob": "b2e1aee31daffaf4ba14b40ecf93148da9602afc"
+    },
+    {
+      "original_path": "infra/scripts/linux/install.sh",
+      "path": "legacy/agent-acp/infra/scripts/linux/install.sh",
+      "sha256": "bc90c47a8f6dca22e5673a9a035b09f0319f7f7370e365e117c501228230d65a",
+      "git_blob": "cab6fa1c705cb92bbae5a4f7970c51a0c2a55179"
+    },
+    {
+      "original_path": "infra/scripts/linux/uninstall.sh",
+      "path": "legacy/agent-acp/infra/scripts/linux/uninstall.sh",
+      "sha256": "26fb2fe1fd440819850a5b8d3e83e3b916fe49405e25a8cf8eaeb01836255562",
+      "git_blob": "9e9e7ce47a708e9d7e0c6c2be2c7157e05a7fcbb"
+    },
+    {
+      "original_path": "infra/scripts/windows/run-local.cmd",
+      "path": "legacy/agent-acp/infra/scripts/windows/run-local.cmd",
+      "sha256": "e013676da1af633eaaec435d20614c19d9bedbd9c7bcfa868ded76e162f4a216",
+      "git_blob": "0409388cd38343accd055a0ab740c767df130631"
+    },
+    {
+      "original_path": "infra/scripts/windows/run-local.ps1",
+      "path": "legacy/agent-acp/infra/scripts/windows/run-local.ps1",
+      "sha256": "4a0920317cab8dad91d7a374336a9970be4b664706b7a19997949f3dec75b0b1",
+      "git_blob": "159b613f7dc1813bcfae055bb54d739a70dc6292"
+    },
+    {
+      "original_path": "infra/systemd/weixin-household-agent-acp.service",
+      "path": "legacy/agent-acp/infra/systemd/weixin-household-agent-acp.service",
+      "sha256": "991dd5868a423a8a5bb788405d5de98f01512d7a93b4a5e8822ef3971bf05bce",
+      "git_blob": "88e12fa157d5bfa8216d4eb383396457e446fc43"
+    },
+    {
+      "original_path": "package.json",
+      "path": "legacy/agent-acp/package.json",
+      "sha256": "38ba8a08dc10192d4e4dafcdba86ef7ab2cde0229a248b01d291fc724647a81d",
+      "git_blob": "9db959d2653694b051049bfadfda21e3e4867704"
+    },
+    {
+      "original_path": "pnpm-lock.yaml",
+      "path": "legacy/agent-acp/pnpm-lock.yaml",
+      "sha256": "fed1d01ea0acef965bc14704e77f96cc8b730978f5295c95a1363ab6a50bdfd4",
+      "git_blob": "58b5556d5b55813e577431fdc2a4bd2c5bfcc900"
+    },
+    {
+      "original_path": "run.sh",
+      "path": "legacy/agent-acp/run.sh",
+      "sha256": "0d669429d348361ced6ab5c69ffd6eaa571707b41be1c98f78e243b15c9f2ea7",
+      "git_blob": "66a76b37432443b070e04a4e9ae124387542937f"
+    },
+    {
+      "original_path": "tsconfig.base.json",
+      "path": "legacy/agent-acp/tsconfig.base.json",
+      "sha256": "18fde7f81be60c2baaa41150d1f985689d919f5925f28083abb4ae07c2d210de",
+      "git_blob": "fe220162527ea926ec7c85b753140a5e58de8260"
+    }
+  ],
+  "README_original": "legacy/agent-acp/README.original.md",
+  "excluded_from_main_tree": [
+    "dist/apps/server/codex/acp-backend.js",
+    "dist/apps/server/codex/acp-connection.js",
+    "dist/apps/server/codex/backend-types.js",
+    "dist/apps/server/codex/permission-review.js",
+    "dist/apps/server/commands/parse-command.js",
+    "dist/apps/server/commands/types.js",
+    "dist/apps/server/config/load-config.js",
+    "dist/apps/server/config/types.js",
+    "dist/apps/server/configure-codex.js",
+    "dist/apps/server/doctor.js",
+    "dist/apps/server/policy/filter-output.js",
+    "dist/apps/server/storage/database.js",
+    "dist/apps/server/storage/schema.js",
+    "dist/apps/server/storage/types.js",
+    "dist/apps/server/transport/ilink/reply.js",
+    "dist/apps/server/transport/ilink/worker.js"
+  ]
+}

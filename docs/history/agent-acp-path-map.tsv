@@ -1,0 +1,95 @@
+old_path	new_path_or_history_location	decision
+.env.example	legacy/agent-acp/.env.example	preserved byte-for-byte
+.gitattributes	legacy/agent-acp/.gitattributes	preserved byte-for-byte
+.gitignore	legacy/agent-acp/.gitignore	preserved byte-for-byte
+LICENSE	legacy/agent-acp/LICENSE	preserved byte-for-byte
+README.md	legacy/agent-acp/README.md	preserved; README receives an archive notice and exact original is README.original.md
+apps/server/src/accounts.ts	legacy/agent-acp/apps/server/src/accounts.ts	preserved byte-for-byte
+apps/server/src/backup.ts	legacy/agent-acp/apps/server/src/backup.ts	preserved byte-for-byte
+apps/server/src/codex-api-wrapper.ts	legacy/agent-acp/apps/server/src/codex-api-wrapper.ts	preserved byte-for-byte
+apps/server/src/codex/acp-backend.ts	legacy/agent-acp/apps/server/src/codex/acp-backend.ts	preserved byte-for-byte
+apps/server/src/codex/acp-connection.ts	legacy/agent-acp/apps/server/src/codex/acp-connection.ts	preserved byte-for-byte
+apps/server/src/codex/acp-response-collector.ts	legacy/agent-acp/apps/server/src/codex/acp-response-collector.ts	preserved byte-for-byte
+apps/server/src/codex/backend-types.ts	legacy/agent-acp/apps/server/src/codex/backend-types.ts	preserved byte-for-byte
+apps/server/src/codex/build-command.ts	legacy/agent-acp/apps/server/src/codex/build-command.ts	preserved byte-for-byte
+apps/server/src/codex/cli-backend.ts	legacy/agent-acp/apps/server/src/codex/cli-backend.ts	preserved byte-for-byte
+apps/server/src/codex/factory.ts	legacy/agent-acp/apps/server/src/codex/factory.ts	preserved byte-for-byte
+apps/server/src/codex/index.ts	legacy/agent-acp/apps/server/src/codex/index.ts	preserved byte-for-byte
+apps/server/src/codex/permission-review.ts	legacy/agent-acp/apps/server/src/codex/permission-review.ts	preserved byte-for-byte
+apps/server/src/codex/run-codex.ts	legacy/agent-acp/apps/server/src/codex/run-codex.ts	preserved byte-for-byte
+apps/server/src/codex/types.ts	legacy/agent-acp/apps/server/src/codex/types.ts	preserved byte-for-byte
+apps/server/src/commands/file-actions.ts	legacy/agent-acp/apps/server/src/commands/file-actions.ts	preserved byte-for-byte
+apps/server/src/commands/index.ts	legacy/agent-acp/apps/server/src/commands/index.ts	preserved byte-for-byte
+apps/server/src/commands/parse-command.ts	legacy/agent-acp/apps/server/src/commands/parse-command.ts	preserved byte-for-byte
+apps/server/src/commands/types.ts	legacy/agent-acp/apps/server/src/commands/types.ts	preserved byte-for-byte
+apps/server/src/config/index.ts	legacy/agent-acp/apps/server/src/config/index.ts	preserved byte-for-byte
+apps/server/src/config/load-config.ts	legacy/agent-acp/apps/server/src/config/load-config.ts	preserved byte-for-byte
+apps/server/src/config/types.ts	legacy/agent-acp/apps/server/src/config/types.ts	preserved byte-for-byte
+apps/server/src/configure-codex.ts	legacy/agent-acp/apps/server/src/configure-codex.ts	preserved byte-for-byte
+apps/server/src/doctor.ts	legacy/agent-acp/apps/server/src/doctor.ts	preserved byte-for-byte
+apps/server/src/files/index.ts	legacy/agent-acp/apps/server/src/files/index.ts	preserved byte-for-byte
+apps/server/src/files/local-file.ts	legacy/agent-acp/apps/server/src/files/local-file.ts	preserved byte-for-byte
+apps/server/src/index.ts	legacy/agent-acp/apps/server/src/index.ts	preserved byte-for-byte
+apps/server/src/policy/filter-output.ts	legacy/agent-acp/apps/server/src/policy/filter-output.ts	preserved byte-for-byte
+apps/server/src/policy/index.ts	legacy/agent-acp/apps/server/src/policy/index.ts	preserved byte-for-byte
+apps/server/src/policy/redact-sensitive.ts	legacy/agent-acp/apps/server/src/policy/redact-sensitive.ts	preserved byte-for-byte
+apps/server/src/router/index.ts	legacy/agent-acp/apps/server/src/router/index.ts	preserved byte-for-byte
+apps/server/src/router/resolve-role.ts	legacy/agent-acp/apps/server/src/router/resolve-role.ts	preserved byte-for-byte
+apps/server/src/send-file.ts	legacy/agent-acp/apps/server/src/send-file.ts	preserved byte-for-byte
+apps/server/src/sessions/index.ts	legacy/agent-acp/apps/server/src/sessions/index.ts	preserved byte-for-byte
+apps/server/src/sessions/memory.ts	legacy/agent-acp/apps/server/src/sessions/memory.ts	preserved byte-for-byte
+apps/server/src/sessions/prompt-context.ts	legacy/agent-acp/apps/server/src/sessions/prompt-context.ts	preserved byte-for-byte
+apps/server/src/sessions/rotation.ts	legacy/agent-acp/apps/server/src/sessions/rotation.ts	preserved byte-for-byte
+apps/server/src/sessions/service.ts	legacy/agent-acp/apps/server/src/sessions/service.ts	preserved byte-for-byte
+apps/server/src/sessions/time.ts	legacy/agent-acp/apps/server/src/sessions/time.ts	preserved byte-for-byte
+apps/server/src/sessions/types.ts	legacy/agent-acp/apps/server/src/sessions/types.ts	preserved byte-for-byte
+apps/server/src/setup.ts	legacy/agent-acp/apps/server/src/setup.ts	preserved byte-for-byte
+apps/server/src/storage/database.ts	legacy/agent-acp/apps/server/src/storage/database.ts	preserved byte-for-byte
+apps/server/src/storage/index.ts	legacy/agent-acp/apps/server/src/storage/index.ts	preserved byte-for-byte
+apps/server/src/storage/schema.ts	legacy/agent-acp/apps/server/src/storage/schema.ts	preserved byte-for-byte
+apps/server/src/storage/types.ts	legacy/agent-acp/apps/server/src/storage/types.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/api-client.ts	legacy/agent-acp/apps/server/src/transport/ilink/api-client.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/inbound.ts	legacy/agent-acp/apps/server/src/transport/ilink/inbound.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/index.ts	legacy/agent-acp/apps/server/src/transport/ilink/index.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/media.ts	legacy/agent-acp/apps/server/src/transport/ilink/media.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/protocol.ts	legacy/agent-acp/apps/server/src/transport/ilink/protocol.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/qr-login.ts	legacy/agent-acp/apps/server/src/transport/ilink/qr-login.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/reply.ts	legacy/agent-acp/apps/server/src/transport/ilink/reply.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/typing.ts	legacy/agent-acp/apps/server/src/transport/ilink/typing.ts	preserved byte-for-byte
+apps/server/src/transport/ilink/worker.ts	legacy/agent-acp/apps/server/src/transport/ilink/worker.ts	preserved byte-for-byte
+apps/server/src/transport/index.ts	legacy/agent-acp/apps/server/src/transport/index.ts	preserved byte-for-byte
+apps/server/src/transport/types.ts	legacy/agent-acp/apps/server/src/transport/types.ts	preserved byte-for-byte
+apps/server/tsconfig.json	legacy/agent-acp/apps/server/tsconfig.json	preserved byte-for-byte
+dist/apps/server/codex/acp-backend.js	archive/agent-acp:dist/apps/server/codex/acp-backend.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/codex/acp-connection.js	archive/agent-acp:dist/apps/server/codex/acp-connection.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/codex/backend-types.js	archive/agent-acp:dist/apps/server/codex/backend-types.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/codex/permission-review.js	archive/agent-acp:dist/apps/server/codex/permission-review.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/commands/parse-command.js	archive/agent-acp:dist/apps/server/commands/parse-command.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/commands/types.js	archive/agent-acp:dist/apps/server/commands/types.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/config/load-config.js	archive/agent-acp:dist/apps/server/config/load-config.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/config/types.js	archive/agent-acp:dist/apps/server/config/types.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/configure-codex.js	archive/agent-acp:dist/apps/server/configure-codex.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/doctor.js	archive/agent-acp:dist/apps/server/doctor.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/policy/filter-output.js	archive/agent-acp:dist/apps/server/policy/filter-output.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/storage/database.js	archive/agent-acp:dist/apps/server/storage/database.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/storage/schema.js	archive/agent-acp:dist/apps/server/storage/schema.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/storage/types.js	archive/agent-acp:dist/apps/server/storage/types.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/transport/ilink/reply.js	archive/agent-acp:dist/apps/server/transport/ilink/reply.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+dist/apps/server/transport/ilink/worker.js	archive/agent-acp:dist/apps/server/transport/ilink/worker.js	build output: omitted from main snapshot; preserved byte-for-byte in original Git history and bundle
+docs/architecture-v0.md	legacy/agent-acp/docs/architecture-v0.md	preserved byte-for-byte
+docs/office-skills.md	legacy/agent-acp/docs/office-skills.md	preserved byte-for-byte
+docs/product-checklist.md	legacy/agent-acp/docs/product-checklist.md	preserved byte-for-byte
+docs/prompts.md	legacy/agent-acp/docs/prompts.md	preserved byte-for-byte
+docs/roadmap.md	legacy/agent-acp/docs/roadmap.md	preserved byte-for-byte
+docs/windows-local-test.md	legacy/agent-acp/docs/windows-local-test.md	preserved byte-for-byte
+infra/scripts/linux/bootstrap.sh	legacy/agent-acp/infra/scripts/linux/bootstrap.sh	preserved byte-for-byte
+infra/scripts/linux/install-office-skills.sh	legacy/agent-acp/infra/scripts/linux/install-office-skills.sh	preserved byte-for-byte
+infra/scripts/linux/install.sh	legacy/agent-acp/infra/scripts/linux/install.sh	preserved byte-for-byte
+infra/scripts/linux/uninstall.sh	legacy/agent-acp/infra/scripts/linux/uninstall.sh	preserved byte-for-byte
+infra/scripts/windows/run-local.cmd	legacy/agent-acp/infra/scripts/windows/run-local.cmd	preserved byte-for-byte
+infra/scripts/windows/run-local.ps1	legacy/agent-acp/infra/scripts/windows/run-local.ps1	preserved byte-for-byte
+infra/systemd/weixin-household-agent-acp.service	legacy/agent-acp/infra/systemd/weixin-household-agent-acp.service	preserved byte-for-byte
+package.json	legacy/agent-acp/package.json	preserved byte-for-byte
+pnpm-lock.yaml	legacy/agent-acp/pnpm-lock.yaml	preserved byte-for-byte
+run.sh	legacy/agent-acp/run.sh	preserved byte-for-byte
+tsconfig.base.json	legacy/agent-acp/tsconfig.base.json	preserved byte-for-byte

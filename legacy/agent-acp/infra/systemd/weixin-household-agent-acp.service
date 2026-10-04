@@ -1,0 +1,17 @@
+[Unit]
+Description=weixin-household-gateway
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/weixin-household-gateway
+Environment=NODE_ENV=production
+EnvironmentFile=/opt/weixin-household-gateway/.env
+ExecStart=/usr/bin/env node dist/apps/server/index.js
+Restart=always
+RestartSec=5
+User=weixin-agent
+Group=weixin-agent
+
+[Install]
+WantedBy=multi-user.target

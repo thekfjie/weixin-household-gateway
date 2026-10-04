@@ -1,0 +1,54 @@
+{
+  "backup_date_utc": "2026-10-04",
+  "local_backup_root": "/var/backups/weixin-household-migration-20261004T101522Z",
+  "repositories": [
+    {
+      "url": "https://github.com/thekfjie/weixin-household-agent-acp.git",
+      "default_branch": "main",
+      "head_sha": "73d3e48ef73babbf0d311dc7de7a5a0d81f8799a",
+      "refs": [
+        "refs/heads/main 73d3e48ef73babbf0d311dc7de7a5a0d81f8799a"
+      ],
+      "bundle": "/var/backups/weixin-household-migration-20261004T101522Z/weixin-household-agent-acp/weixin-household-agent-acp.bundle",
+      "bundle_sha256": "db9a093e1f004fef50ce340452717ed1f96dbdc21e1e03f88767c7a8691e3dad",
+      "mirror": "/var/backups/weixin-household-migration-20261004T101522Z/weixin-household-agent-acp/weixin-household-agent-acp.git",
+      "backup_date": "2026-10-04T10:16:33.178601+00:00",
+      "repository_bundle": "docs/history/bundles/agent-acp-pre-migration.bundle"
+    },
+    {
+      "url": "https://github.com/thekfjie/weixin-household-gateway.git",
+      "default_branch": "main",
+      "head_sha": "56d5229dee29bd851828beeb191b290f2ab3237f",
+      "refs": [
+        "refs/heads/bugfix/disable-auto-session-rotation 274b4cef43aeefd5c976d0a1c629081fa396d9e8",
+        "refs/heads/bugfix/linux-codex-admin-sandbox ed6f5e2f7daa899b71c9bf38fb4a3ec1b09426b3",
+        "refs/heads/feature/stop-running-turn 13af56df5d9742d805e9d3b0af32023b72f4595f",
+        "refs/heads/main 56d5229dee29bd851828beeb191b290f2ab3237f"
+      ],
+      "bundle": "/var/backups/weixin-household-migration-20261004T101522Z/weixin-household-gateway/weixin-household-gateway.bundle",
+      "bundle_sha256": "efee092e58c0b180d9850640554c8942670891df7b183ab9f5e38e711e06d7d7",
+      "mirror": "/var/backups/weixin-household-migration-20261004T101522Z/weixin-household-gateway/weixin-household-gateway.git",
+      "backup_date": "2026-10-04T10:16:32.181507+00:00",
+      "repository_bundle": "docs/history/bundles/gateway-pre-migration.bundle"
+    }
+  ],
+  "server_original_source_head": "06849a96f685398766d5f1eb4bdcfba241026172",
+  "server_original_active_head": "0d839b827f9da71038b1ee8460732b02be736f1d",
+  "server_original_previous_head": "f7f7fb3dff91fd4e765500bd0a76848e7d69227e",
+  "server_retained_refs": {
+    "main": "5c37cc8ea841256c2b73c15693077ea978f28c07",
+    "archive/server-source-20261004": "a367e1c0a42e5b6bd3db6b2c6529a778d2a141a2",
+    "archive/server-active-20261004": "38a6311c75e0e428067c7f97674dcbedc37dcc3c",
+    "archive/server-cdn-research-20261004": "a94483d5600f946ee008f6fcb187471383fe52a2",
+    "archive/agent-acp": "73d3e48ef73babbf0d311dc7de7a5a0d81f8799a"
+  },
+  "server_backup_files": [
+    "server/pre-migration-layout.tar.gz",
+    "server/systemd.tar.gz",
+    "server/server-all-refs.bundle",
+    "server/pre-migration.sqlite",
+    "server/persistent-data.tar.gz",
+    "server/release.env"
+  ],
+  "server_backups_private": true
+}

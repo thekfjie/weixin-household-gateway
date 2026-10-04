@@ -1,0 +1,72 @@
+[
+  [
+    {
+      "name": "bugfix/disable-auto-session-rotation",
+      "commit": {
+        "sha": "274b4cef43aeefd5c976d0a1c629081fa396d9e8",
+        "url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/commits/274b4cef43aeefd5c976d0a1c629081fa396d9e8"
+      },
+      "protected": false,
+      "protection": {
+        "enabled": false,
+        "required_status_checks": {
+          "enforcement_level": "off",
+          "contexts": [],
+          "checks": []
+        }
+      },
+      "protection_url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/branches/bugfix/disable-auto-session-rotation/protection"
+    },
+    {
+      "name": "bugfix/linux-codex-admin-sandbox",
+      "commit": {
+        "sha": "ed6f5e2f7daa899b71c9bf38fb4a3ec1b09426b3",
+        "url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/commits/ed6f5e2f7daa899b71c9bf38fb4a3ec1b09426b3"
+      },
+      "protected": false,
+      "protection": {
+        "enabled": false,
+        "required_status_checks": {
+          "enforcement_level": "off",
+          "contexts": [],
+          "checks": []
+        }
+      },
+      "protection_url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/branches/bugfix/linux-codex-admin-sandbox/protection"
+    },
+    {
+      "name": "feature/stop-running-turn",
+      "commit": {
+        "sha": "13af56df5d9742d805e9d3b0af32023b72f4595f",
+        "url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/commits/13af56df5d9742d805e9d3b0af32023b72f4595f"
+      },
+      "protected": false,
+      "protection": {
+        "enabled": false,
+        "required_status_checks": {
+          "enforcement_level": "off",
+          "contexts": [],
+          "checks": []
+        }
+      },
+      "protection_url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/branches/feature/stop-running-turn/protection"
+    },
+    {
+      "name": "main",
+      "commit": {
+        "sha": "56d5229dee29bd851828beeb191b290f2ab3237f",
+        "url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/commits/56d5229dee29bd851828beeb191b290f2ab3237f"
+      },
+      "protected": false,
+      "protection": {
+        "enabled": false,
+        "required_status_checks": {
+          "enforcement_level": "off",
+          "contexts": [],
+          "checks": []
+        }
+      },
+      "protection_url": "https://api.github.com/repos/thekfjie/weixin-household-gateway/branches/main/protection"
+    }
+  ]
+]
