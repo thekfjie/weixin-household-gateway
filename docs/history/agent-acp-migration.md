@@ -95,8 +95,9 @@ Gateway 的首次主体导入是在 2026-05-04。代码证据说明，它在旧�
 git bundle verify docs/history/bundles/agent-acp-pre-migration.bundle
 git clone --mirror docs/history/bundles/agent-acp-pre-migration.bundle /path/to/acp-restored.git
 git --git-dir=/path/to/acp-restored.git fsck --full
-git log archive/agent-acp --oneline
-git show archive/agent-acp:docs/architecture-v0.md
+git fetch origin
+git log origin/archive/agent-acp --oneline
+git show origin/archive/agent-acp:docs/architecture-v0.md
 ```
 
 完整 mirror、原 bundle、GitHub API 元数据及服务器私有数据备份位于：
